@@ -942,16 +942,15 @@ pub const Point = py.class(struct {
 | You want clean, natural Zig syntax | You need stable ABI (one binary for Python 3.11+) |
 | You need Python 3.8-3.10 support | You already use Poetry |
 | You want built-in numpy/datetime/decimal support | You want pytest integration |
-| You prefer standalone CLI tooling | You prefer a more modular codebase |
-| You want the latest Zig (0.15.x) | You want an established project (SpiralDB backing) |
+| You prefer standalone CLI tooling | You want an established project (SpiralDB backing) |
 
 ### Codebase Comparison
 
 | Metric | PyOZ | Pydust |
 |--------|------|--------|
-| Core library LoC | ~7,600 | ~5,750 |
-| File count | 4 (monolithic) | 30+ (modular) |
-| Architecture | Straightforward | Discovery-based |
+| Core library LoC | ~9,000 | ~5,750 |
+| File count | 60+ (modular) | 30+ (modular) |
+| Architecture | Organized by domain | Discovery-based |
 
 **Bottom line:** PyOZ prioritizes ergonomics and "just write Zig" philosophy. Pydust prioritizes modularity and stable ABI. Both are valid approaches for different use cases.
 
