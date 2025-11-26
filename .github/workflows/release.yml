@@ -1,0 +1,122 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+
+permissions:
+    contents: write
+
+jobs:
+    build:
+        name: Build Release Binaries
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Zig
+              uses: goto-bus-stop/setup-zig@v2
+              with:
+                  version: 0.14.0
+
+            - name: Build all platforms
+              run: zig build release
+
+            - name: Create source tarball
+              run: |
+                  VERSION=${GITHUB_REF#refs/tags/v}
+                  git archive --format=tar.gz --prefix=PyOZ-${VERSION}/ -o zig-out/release/PyOZ-${VERSION}.tar.gz HEAD
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: release-binaries
+                  path: zig-out/release/*
+
+    release:
+        name: Create GitHub Release
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: release-binaries
+                  path: release/
+
+            - name: Get version from tag
+              id: version
+              run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+            - name: Extract changelog for this version
+              id: changelog
+              run: |
+                  VERSION=${GITHUB_REF#refs/tags/v}
+                  # Extract the section between this version and the next version header (or end of file)
+                  CHANGELOG=$(awk -v ver="$VERSION" '
+                    BEGIN { found=0; output="" }
+                    /^## \[/ {
+                      if (found) exit
+                      if (index($0, ver)) found=1
+                      next
+                    }
+                    found { output = output $0 "\n" }
+                    END { print output }
+                  ' CHANGELOG.md)
+
+                  # Write to file to preserve newlines
+                  echo "$CHANGELOG" > changelog_section.txt
+
+                  # Also set as output (escaped for GitHub Actions)
+                  {
+                    echo 'NOTES<<EOF'
+                    cat changelog_section.txt
+                    echo 'EOF'
+                  } >> $GITHUB_OUTPUT
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  name: PyOZ v${{ steps.version.outputs.VERSION }}
+                  body: |
+                      ## What's New in v${{ steps.version.outputs.VERSION }}
+
+                      ${{ steps.changelog.outputs.NOTES }}
+
+                      ---
+
+                      ## Installation
+
+                      Download the binary for your platform and add it to your PATH:
+
+                      | Platform | Binary |
+                      |----------|--------|
+                      | Linux x86_64 | `pyoz-x86_64-linux` |
+                      | Linux ARM64 | `pyoz-aarch64-linux` |
+                      | macOS x86_64 | `pyoz-x86_64-macos` |
+                      | macOS ARM64 (Apple Silicon) | `pyoz-aarch64-macos` |
+                      | Windows x86_64 | `pyoz-x86_64-windows.exe` |
+                      | Windows ARM64 | `pyoz-aarch64-windows.exe` |
+
+                      ## Source
+
+                      Download `PyOZ-${{ steps.version.outputs.VERSION }}.tar.gz` for the source code.
+
+                      ## Quick Start
+
+                      ```bash
+                      pyoz init mymodule
+                      cd mymodule
+                      pyoz build
+                      pip install dist/*.whl
+                      ```
+                  files: release/*
+                  draft: false
+                  prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
