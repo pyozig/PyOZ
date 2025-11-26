@@ -1,66 +1,81 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Python configuration detected from the system
 const PythonConfig = struct {
     version: []const u8,
+    version_major: u8,
+    version_minor: u8,
     include_dir: []const u8,
     lib_dir: ?[]const u8,
     lib_name: []const u8,
 };
 
-/// Detect Python configuration using python3-config
+/// Get the Python executable name for the current platform
+fn getPythonCommand() []const u8 {
+    return if (builtin.os.tag == .windows) "python" else "python3";
+}
+
+/// Detect Python configuration using sysconfig (cross-platform)
 fn detectPython(b: *std.Build) ?PythonConfig {
     var out_code: u8 = 0;
+    const python_cmd = getPythonCommand();
 
     // Try to get Python version
     const version_result = b.runAllowFail(
-        &.{ "python3", "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" },
+        &.{ python_cmd, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" },
         &out_code,
         .Inherit,
     ) catch return null;
     if (out_code != 0) return null;
     const version = std.mem.trim(u8, version_result, &std.ascii.whitespace);
 
-    // Get include directory
+    // Parse version numbers
+    var version_major: u8 = 3;
+    var version_minor: u8 = 0;
+    if (std.mem.indexOf(u8, version, ".")) |dot| {
+        version_major = std.fmt.parseInt(u8, version[0..dot], 10) catch 3;
+        version_minor = std.fmt.parseInt(u8, version[dot + 1 ..], 10) catch 0;
+    }
+
+    // Get include directory using sysconfig (cross-platform)
     const include_result = b.runAllowFail(
-        &.{ "python3-config", "--includes" },
+        &.{ python_cmd, "-c", "import sysconfig; print(sysconfig.get_path('include'))" },
         &out_code,
         .Inherit,
     ) catch return null;
     if (out_code != 0) return null;
 
-    var include_dir: []const u8 = "";
-
-    // Parse the includes output to extract the path
-    var it = std.mem.tokenizeAny(u8, include_result, " \t\n");
-    while (it.next()) |token| {
-        if (std.mem.startsWith(u8, token, "-I")) {
-            include_dir = token[2..];
-            break;
-        }
-    }
-
+    const include_dir = std.mem.trim(u8, include_result, &std.ascii.whitespace);
     if (include_dir.len == 0) return null;
 
-    // Get library directory (optional)
+    // Get library directory using sysconfig (cross-platform)
     var lib_dir: ?[]const u8 = null;
-    if (b.runAllowFail(&.{ "python3-config", "--ldflags" }, &out_code, .Inherit)) |ldflags_result| {
+    if (b.runAllowFail(&.{
+        python_cmd,
+        "-c",
+        "import sysconfig,sys,os;d=sysconfig.get_config_var('LIBDIR');print(d if d else os.path.join(sys.prefix,'libs' if sys.platform=='win32' else 'lib'))",
+    }, &out_code, .Inherit)) |libdir_result| {
         if (out_code == 0) {
-            var ld_it = std.mem.tokenizeAny(u8, ldflags_result, " \t\n");
-            while (ld_it.next()) |token| {
-                if (std.mem.startsWith(u8, token, "-L")) {
-                    lib_dir = token[2..];
-                    break;
-                }
+            const libdir_trimmed = std.mem.trim(u8, libdir_result, &std.ascii.whitespace);
+            if (libdir_trimmed.len > 0) {
+                lib_dir = libdir_trimmed;
             }
         }
     } else |_| {}
 
-    // Construct library name
-    const lib_name = std.fmt.allocPrint(b.allocator, "python{s}", .{version}) catch return null;
+    // Construct library name based on platform
+    const lib_name = if (builtin.os.tag == .windows)
+        // Windows uses python<major><minor> (no dot), e.g., python313
+        std.fmt.allocPrint(b.allocator, "python{d}{d}", .{ version_major, version_minor }) catch return null
+    else
+        // Unix uses python<major>.<minor>, e.g., python3.13
+        std.fmt.allocPrint(b.allocator, "python{s}", .{version}) catch return null;
 
     return PythonConfig{
         .version = version,
+        .version_major = version_major,
+        .version_minor = version_minor,
         .include_dir = include_dir,
         .lib_dir = lib_dir,
         .lib_name = lib_name,
@@ -78,7 +93,11 @@ pub fn build(b: *std.Build) void {
     const python_config = detectPython(b);
 
     if (python_config == null) {
-        std.log.warn("Python not detected! Make sure python3 and python3-config are in PATH.", .{});
+        if (builtin.os.tag == .windows) {
+            std.log.warn("Python not detected! Make sure python is in PATH.", .{});
+        } else {
+            std.log.warn("Python not detected! Make sure python3 is in PATH.", .{});
+        }
     }
 
     // Create the version module - single source of truth for lib and CLI
@@ -136,9 +155,10 @@ pub fn build(b: *std.Build) void {
     }
     example_lib.linkLibC();
 
-    // Install as .so file
+    // Install as .so file (Unix) or .pyd file (Windows)
+    const ext = if (builtin.os.tag == .windows) ".pyd" else ".so";
     const install_example = b.addInstallArtifact(example_lib, .{
-        .dest_sub_path = "example.so",
+        .dest_sub_path = "example" ++ ext,
     });
 
     const example_step = b.step("example", "Build the example Python module");

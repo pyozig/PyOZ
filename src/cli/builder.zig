@@ -26,11 +26,18 @@ pub const PythonConfig = struct {
     }
 };
 
-/// Detect Python configuration using python3-config
+/// Get the Python executable name for the current platform
+fn getPythonCommand() []const u8 {
+    return if (builtin.os.tag == .windows) "python" else "python3";
+}
+
+/// Detect Python configuration using sysconfig (cross-platform)
 pub fn detectPython(allocator: std.mem.Allocator) !PythonConfig {
+    const python_cmd = getPythonCommand();
+
     // Get Python version
     const version_result = try runCommand(allocator, &.{
-        "python3", "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+        python_cmd, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
     });
     defer allocator.free(version_result);
     const version_trimmed = std.mem.trim(u8, version_result, &std.ascii.whitespace);
@@ -46,40 +53,42 @@ pub fn detectPython(allocator: std.mem.Allocator) !PythonConfig {
     const version_str = try allocator.dupe(u8, version_trimmed);
     errdefer allocator.free(version_str);
 
-    // Get include directory
-    const includes_result = try runCommand(allocator, &.{ "python3-config", "--includes" });
-    defer allocator.free(includes_result);
+    // Get include directory using sysconfig (cross-platform)
+    const include_result = try runCommand(allocator, &.{
+        python_cmd, "-c", "import sysconfig; print(sysconfig.get_path('include'))",
+    });
+    defer allocator.free(include_result);
+    const include_trimmed = std.mem.trim(u8, include_result, &std.ascii.whitespace);
 
-    var include_dir: []const u8 = "";
-    var it = std.mem.tokenizeAny(u8, includes_result, " \t\n");
-    while (it.next()) |token| {
-        if (std.mem.startsWith(u8, token, "-I")) {
-            include_dir = try allocator.dupe(u8, token[2..]);
-            break;
-        }
-    }
-
-    if (include_dir.len == 0) {
+    if (include_trimmed.len == 0) {
         allocator.free(version_str);
         return error.PythonNotFound;
     }
+
+    const include_dir = try allocator.dupe(u8, include_trimmed);
     errdefer allocator.free(include_dir);
 
-    // Get library directory (optional)
+    // Get library directory using sysconfig (cross-platform)
     var lib_dir: ?[]const u8 = null;
-    if (runCommand(allocator, &.{ "python3-config", "--ldflags" })) |ldflags_result| {
-        defer allocator.free(ldflags_result);
-        var ld_it = std.mem.tokenizeAny(u8, ldflags_result, " \t\n");
-        while (ld_it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-L")) {
-                lib_dir = try allocator.dupe(u8, token[2..]);
-                break;
-            }
+    if (runCommand(allocator, &.{
+        python_cmd,
+        "-c",
+        "import sysconfig,sys,os;d=sysconfig.get_config_var('LIBDIR');print(d if d else os.path.join(sys.prefix,'libs' if sys.platform=='win32' else 'lib'))",
+    })) |libdir_result| {
+        defer allocator.free(libdir_result);
+        const libdir_trimmed = std.mem.trim(u8, libdir_result, &std.ascii.whitespace);
+        if (libdir_trimmed.len > 0) {
+            lib_dir = try allocator.dupe(u8, libdir_trimmed);
         }
     } else |_| {}
 
-    // Construct library name
-    const lib_name = try std.fmt.allocPrint(allocator, "python{s}", .{version_str});
+    // Construct library name based on platform
+    const lib_name = if (builtin.os.tag == .windows)
+        // Windows uses python<major><minor> (no dot), e.g., python313
+        try std.fmt.allocPrint(allocator, "python{d}{d}", .{ version_major, version_minor })
+    else
+        // Unix uses python<major>.<minor>, e.g., python3.13
+        try std.fmt.allocPrint(allocator, "python{s}", .{version_str});
 
     return PythonConfig{
         .version_major = version_major,
@@ -123,7 +132,11 @@ pub fn buildModule(allocator: std.mem.Allocator, release: bool) !BuildResult {
 
     // Detect Python configuration
     var python = detectPython(allocator) catch |err| {
-        std.debug.print("Error: Could not detect Python. Make sure python3 and python3-config are in PATH.\n", .{});
+        if (builtin.os.tag == .windows) {
+            std.debug.print("Error: Could not detect Python. Make sure python is in PATH.\n", .{});
+        } else {
+            std.debug.print("Error: Could not detect Python. Make sure python3 is in PATH.\n", .{});
+        }
         return err;
     };
     defer python.deinit(allocator);
@@ -216,8 +229,9 @@ pub fn developMode(allocator: std.mem.Allocator) !void {
 
     // First, check if we're in a virtual environment
     // This checks VIRTUAL_ENV env var OR if sys.prefix != sys.base_prefix
+    const python_cmd = getPythonCommand();
     const venv_check = runCommand(allocator, &.{
-        "python3", "-c",
+        python_cmd, "-c",
         \\import sys, os
         \\venv = os.environ.get('VIRTUAL_ENV')
         \\if venv or sys.prefix != sys.base_prefix:
@@ -243,7 +257,7 @@ pub fn developMode(allocator: std.mem.Allocator) !void {
     // If not in venv, try system site-packages but expect it might fail
     const site_dir = if (std.mem.eql(u8, venv_result, "NO_VENV")) blk: {
         const site_result = runCommand(allocator, &.{
-            "python3", "-c", "import site; print(site.getsitepackages()[0])",
+            python_cmd, "-c", "import site; print(site.getsitepackages()[0])",
         }) catch {
             try createLocalSymlink(allocator, abs_built_path, result.module_name, config.name);
             return;
@@ -279,23 +293,28 @@ pub fn developMode(allocator: std.mem.Allocator) !void {
     }
 
     std.debug.print("\nDevelopment install complete!\n", .{});
-    std.debug.print("Test with: python3 -c \"import {s}; print({s}.add(2, 3))\"\n", .{ config.name, config.name });
+    std.debug.print("Test with: {s} -c \"import {s}; print({s}.add(2, 3))\"\n", .{ python_cmd, config.name, config.name });
 }
 
 fn createLocalSymlink(allocator: std.mem.Allocator, abs_built_path: []const u8, module_name: []const u8, project_name: []const u8) !void {
+    _ = allocator;
+    const python_cmd = getPythonCommand();
     const cwd = std.fs.cwd();
     cwd.deleteFile(module_name) catch {};
     cwd.symLink(abs_built_path, module_name, .{}) catch |err| {
         std.debug.print("Error: Could not create symlink: {s}\n", .{@errorName(err)});
         std.debug.print("\nManual installation:\n", .{});
-        std.debug.print("  ln -sf {s} ./{s}\n", .{ abs_built_path, module_name });
+        if (builtin.os.tag == .windows) {
+            std.debug.print("  copy {s} .\\{s}\n", .{ abs_built_path, module_name });
+        } else {
+            std.debug.print("  ln -sf {s} ./{s}\n", .{ abs_built_path, module_name });
+        }
         return err;
     };
 
-    _ = allocator;
     std.debug.print("\nCreated local symlink: ./{s}\n", .{module_name});
     std.debug.print("You can import the module from this directory.\n", .{});
-    std.debug.print("Test with: python3 -c \"import {s}; print({s}.add(2, 3))\"\n", .{ project_name, project_name });
+    std.debug.print("Test with: {s} -c \"import {s}; print({s}.add(2, 3))\"\n", .{ python_cmd, project_name, project_name });
 }
 
 pub fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) ![]const u8 {

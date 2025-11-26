@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-11-26
+
+### Fixed
+- **Windows support** - PyOZ now works correctly on Windows
+  - Replaced `python3-config` with `sysconfig` module for cross-platform Python detection
+  - Fixed library naming (`python313` on Windows vs `python3.13` on Unix)
+  - Fixed example module extension (`.pyd` on Windows vs `.so` on Unix)
+  - Fixed crash when inheriting from Python built-in types (`__base__`)
+    - On Windows, DLL data imports (like `PyList_Type`) require runtime address resolution
+    - Comptime initialization used import thunk address instead of actual type object
+    - Added runtime `initBase()` for Windows while preserving comptime on Linux/macOS
+
+### Changed
+- Python detection now uses `sysconfig` module (standard library since Python 3.2) on all platforms
+- `python3-config` is no longer required on any platform
+
 ## [0.3.0] - 2025-11-26
 
 ### Added

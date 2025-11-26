@@ -453,7 +453,9 @@ pub fn module(comptime config: anytype) type {
         var exception_types: [num_exceptions]?*PyObject = [_]?*PyObject{null} ** num_exceptions;
 
         pub fn init() ?*PyObject {
-            const mod = py.PyModule_Create(&module_def) orelse return null;
+            const mod = py.PyModule_Create(&module_def) orelse {
+                return null;
+            };
 
             // Initialize special type APIs at module load time (detected at comptime)
             if (needs_datetime_init) {
@@ -465,6 +467,9 @@ pub fn module(comptime config: anytype) type {
 
             // Add classes to the module
             inline for (classes) |cls| {
+                // Initialize base type at runtime (required on Windows for DLL imports)
+                class_mod.getWrapper(cls.zig_type).initBase();
+
                 // Ready the type first
                 if (py.PyType_Ready(cls.type_obj) < 0) {
                     py.Py_DecRef(mod);

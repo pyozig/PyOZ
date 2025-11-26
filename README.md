@@ -850,7 +850,10 @@ If the tag doesn't match `version.zig`, the push will be blocked.
 
 - **Zig 0.15.2** (required)
 - Python 3.8+
-- python3-config (for header detection)
+- **Linux/macOS**: `python3` in PATH
+- **Windows**: `python` in PATH
+
+Python configuration is auto-detected using the `sysconfig` module (standard library).
 
 ## Comparison with PyO3
 

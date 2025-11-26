@@ -201,8 +201,14 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
             }
 
             // Inheritance
+            // On Windows, DLL data imports (like PyList_Type) require runtime
+            // address resolution. At comptime, we'd get the import thunk address
+            // instead of the actual type object. On Unix, comptime works fine.
             if (@hasDecl(T, "__base__")) {
-                obj.tp_base = T.__base__();
+                if (@import("builtin").os.tag != .windows) {
+                    obj.tp_base = T.__base__();
+                }
+                // On Windows, tp_base is set via initBase() at runtime
             }
 
             // Documentation
@@ -322,6 +328,17 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
             }
 
             return obj;
+        }
+
+        /// Initialize base type at runtime (required on Windows for DLL imports)
+        /// On Windows, DLL data symbols like PyList_Type need runtime address
+        /// resolution. This function must be called before PyType_Ready().
+        pub fn initBase() void {
+            if (@import("builtin").os.tag == .windows) {
+                if (@hasDecl(T, "__base__")) {
+                    type_object.tp_base = T.__base__();
+                }
+            }
         }
 
         // ====================================================================
