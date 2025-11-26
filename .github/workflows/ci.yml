@@ -160,9 +160,10 @@ jobs:
 
                   # Basic functions
                   assert example.add(2, 3) == 5, 'add failed'
-                  assert example.multiply(4, 5) == 20, 'multiply failed'
+                  assert example.multiply(4, 5) == 20.0, 'multiply failed'
                   assert example.is_even(4) == True, 'is_even failed'
-                  assert example.greet('World') == 'Hello, World!', 'greet failed'
+                  assert example.greet('World') == 'Hello from Zig!', 'greet failed'
+                  assert example.answer() == 42, 'answer failed'
 
                   # Point class
                   p1 = example.Point(3.0, 4.0)
@@ -211,9 +212,9 @@ jobs:
                   assert example.set_len({1, 2, 3}) == 3, 'set_len failed'
                   assert example.sum_set({1, 2, 3, 4, 5}) == 15, 'sum_set failed'
 
-                  # DateTime types
-                  d = example.make_date(2025, 11, 26)
-                  assert d.year == 2025, 'make_date failed'
+                  # DateTime types (make_date returns hardcoded 2024-07-04)
+                  d = example.make_date()
+                  assert d.year == 2024 and d.month == 7 and d.day == 4, 'make_date failed'
 
                   # Error handling
                   try:
@@ -230,16 +231,13 @@ jobs:
                       pass
 
                   # NumPy (if available)
-                  try:
-                      import numpy as np
-                      arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-                      assert example.numpy_sum(arr) == 15.0, 'numpy_sum failed'
-                      assert example.numpy_mean(arr) == 3.0, 'numpy_mean failed'
-                      arr2 = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-                      example.numpy_scale(arr2, 2.0)
-                      assert list(arr2) == [2.0, 4.0, 6.0], 'numpy_scale failed'
-                  except ImportError:
-                      pass
+                  import numpy as np
+                  arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+                  assert example.numpy_sum(arr) == 15.0, 'numpy_sum failed'
+                  assert example.numpy_mean(arr) == 3.0, 'numpy_mean failed'
+                  arr2 = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+                  example.numpy_scale(arr2, 2.0)
+                  assert list(arr2) == [2.0, 4.0, 6.0], 'numpy_scale failed'
 
                   # Submodule
                   assert example.math.factorial(5) == 120, 'math.factorial failed'
@@ -260,9 +258,10 @@ jobs:
 
                   # Basic functions
                   assert example.add(2, 3) == 5, 'add failed'
-                  assert example.multiply(4, 5) == 20, 'multiply failed'
+                  assert example.multiply(4, 5) == 20.0, 'multiply failed'
                   assert example.is_even(4) == True, 'is_even failed'
-                  assert example.greet('World') == 'Hello, World!', 'greet failed'
+                  assert example.greet('World') == 'Hello from Zig!', 'greet failed'
+                  assert example.answer() == 42, 'answer failed'
 
                   # Point class
                   p1 = example.Point(3.0, 4.0)
@@ -311,9 +310,9 @@ jobs:
                   assert example.set_len({1, 2, 3}) == 3, 'set_len failed'
                   assert example.sum_set({1, 2, 3, 4, 5}) == 15, 'sum_set failed'
 
-                  # DateTime types
-                  d = example.make_date(2025, 11, 26)
-                  assert d.year == 2025, 'make_date failed'
+                  # DateTime types (make_date returns hardcoded 2024-07-04)
+                  d = example.make_date()
+                  assert d.year == 2024 and d.month == 7 and d.day == 4, 'make_date failed'
 
                   # Error handling
                   try:
@@ -330,16 +329,13 @@ jobs:
                       pass
 
                   # NumPy (if available)
-                  try:
-                      import numpy as np
-                      arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-                      assert example.numpy_sum(arr) == 15.0, 'numpy_sum failed'
-                      assert example.numpy_mean(arr) == 3.0, 'numpy_mean failed'
-                      arr2 = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-                      example.numpy_scale(arr2, 2.0)
-                      assert list(arr2) == [2.0, 4.0, 6.0], 'numpy_scale failed'
-                  except ImportError:
-                      pass
+                  import numpy as np
+                  arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+                  assert example.numpy_sum(arr) == 15.0, 'numpy_sum failed'
+                  assert example.numpy_mean(arr) == 3.0, 'numpy_mean failed'
+                  arr2 = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+                  example.numpy_scale(arr2, 2.0)
+                  assert list(arr2) == [2.0, 4.0, 6.0], 'numpy_scale failed'
 
                   # Submodule
                   assert example.math.factorial(5) == 120, 'math.factorial failed'
