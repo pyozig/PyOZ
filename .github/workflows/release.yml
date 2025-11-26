@@ -40,6 +40,8 @@ jobs:
         name: Create GitHub Release
         needs: build
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
 
         steps:
             - name: Checkout
@@ -82,7 +84,9 @@ jobs:
                   } >> $GITHUB_OUTPUT
 
             - name: Create Release
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2.4.2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
                   name: PyOZ v${{ steps.version.outputs.VERSION }}
                   body: |
