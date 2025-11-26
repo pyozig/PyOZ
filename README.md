@@ -375,7 +375,7 @@ If the tag doesn't match `version.zig`, the push will be blocked.
 
 ## Requirements
 
-- Zig 0.14+ (0.15 recommended)
+- **Zig 0.15.2** (required)
 - Python 3.8+
 - python3-config (for header detection)
 
