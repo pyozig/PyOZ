@@ -93,35 +93,17 @@ pub inline fn PyBuffer_FillInfo(view: *Py_buffer, obj: ?*PyObject, buf: ?*anyopa
 }
 
 // GIL (Global Interpreter Lock) control
-// Note: We define PyThreadState as opaque to avoid cImport issues with Python 3.12+
-// where the struct contains anonymous structs/unions that Zig can't translate.
-// We only use it as an opaque pointer anyway.
+// Note: We define PyThreadState as opaque and use extern declarations to avoid
+// cImport issues with Python 3.12+ where the struct contains anonymous structs
+// that Zig's cImport cannot translate.
 pub const PyThreadState = opaque {};
-pub const PyGILState_STATE = c.PyGILState_STATE;
+pub const PyGILState_STATE = c_uint;
 
-/// Release the GIL, allowing other Python threads to run.
-/// Returns a token that must be passed to PyEval_RestoreThread to reacquire.
-/// Use this before CPU-intensive Zig code that doesn't touch Python objects.
-pub inline fn PyEval_SaveThread() ?*PyThreadState {
-    return @ptrCast(c.PyEval_SaveThread());
-}
-
-/// Reacquire the GIL after releasing it with PyEval_SaveThread.
-/// Must pass the token returned by PyEval_SaveThread.
-pub inline fn PyEval_RestoreThread(state: ?*PyThreadState) void {
-    c.PyEval_RestoreThread(@ptrCast(@alignCast(state)));
-}
-
-/// Acquire the GIL from a non-Python thread.
-/// Returns a state that must be passed to PyGILState_Release.
-pub inline fn PyGILState_Ensure() PyGILState_STATE {
-    return c.PyGILState_Ensure();
-}
-
-/// Release the GIL that was acquired with PyGILState_Ensure.
-pub inline fn PyGILState_Release(state: PyGILState_STATE) void {
-    c.PyGILState_Release(state);
-}
+// Extern declarations for GIL functions - avoids cImport resolving PyThreadState struct
+pub extern fn PyEval_SaveThread() ?*PyThreadState;
+pub extern fn PyEval_RestoreThread(state: ?*PyThreadState) void;
+pub extern fn PyGILState_Ensure() PyGILState_STATE;
+pub extern fn PyGILState_Release(state: PyGILState_STATE) void;
 
 // Type slots
 pub const Py_tp_init: c_int = c.Py_tp_init;
