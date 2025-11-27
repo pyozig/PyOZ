@@ -540,6 +540,33 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type) []const u8
             }
         }
 
+        // pyoz.property() declarations
+        for (struct_info.decls) |decl| {
+            const DeclType = @TypeOf(@field(T, decl.name));
+            // Check if this is a type with __pyoz_property__ marker
+            if (DeclType == type) {
+                const ActualType = @field(T, decl.name);
+                if (@hasDecl(ActualType, "__pyoz_property__") and ActualType.__pyoz_property__) {
+                    const ConfigType = ActualType.config;
+                    // Get return type from the getter function
+                    const getter_fn = @field(ConfigType{}, "get");
+                    const getter_info = @typeInfo(@TypeOf(getter_fn)).@"fn";
+                    const return_type = if (getter_info.return_type) |ret| zigTypeToPython(ret) else "Any";
+
+                    const has_setter = @hasField(ConfigType, "set");
+
+                    result = result ++ "    @property\n";
+                    result = result ++ "    def " ++ decl.name ++ "(self) -> " ++ return_type ++ ": ...\n";
+
+                    if (has_setter) {
+                        result = result ++ "    @" ++ decl.name ++ ".setter\n";
+                        result = result ++ "    def " ++ decl.name ++ "(self, value: " ++ return_type ++ ") -> None: ...\n";
+                    }
+                    result = result ++ "\n";
+                }
+            }
+        }
+
         // Magic methods
         for (.{
             .{ "__repr__", "str" },
@@ -702,6 +729,13 @@ pub fn generateExceptionStub(comptime name: []const u8, comptime doc: ?[]const u
     }
 }
 
+/// Generate stub for a module constant
+pub fn generateConstStub(comptime name: []const u8, comptime T: type) []const u8 {
+    comptime {
+        return name ++ ": " ++ zigTypeToPython(T) ++ "\n";
+    }
+}
+
 /// Generate stub for an enum
 pub fn generateEnumStub(comptime name: []const u8, comptime T: type, comptime is_str_enum: bool) []const u8 {
     comptime {
@@ -762,19 +796,21 @@ pub fn generateModuleStubs(comptime config: anytype) []const u8 {
             }
         }
 
-        // Enums
+        // Enums (unified - uses is_str_enum field for auto-detection)
         if (@hasField(@TypeOf(config), "enums")) {
             const enums = config.enums;
             for (enums) |e| {
-                result = result ++ generateEnumStub(std.mem.span(e.name), e.zig_type, false);
+                result = result ++ generateEnumStub(std.mem.span(e.name), e.zig_type, e.is_str_enum);
             }
         }
 
-        // String enums
+        // Legacy str_enums support (deprecated)
         if (@hasField(@TypeOf(config), "str_enums")) {
             const str_enums = config.str_enums;
             for (str_enums) |e| {
-                result = result ++ generateEnumStub(std.mem.span(e.name), e.zig_type, true);
+                // Legacy str_enums always use is_str_enum if available, else default true
+                const is_str = if (@hasField(@TypeOf(e), "is_str_enum")) e.is_str_enum else true;
+                result = result ++ generateEnumStub(std.mem.span(e.name), e.zig_type, is_str);
             }
         }
 
@@ -783,6 +819,18 @@ pub fn generateModuleStubs(comptime config: anytype) []const u8 {
             const classes = config.classes;
             for (classes) |cls| {
                 result = result ++ generateClassStub(std.mem.span(cls.name), cls.zig_type);
+            }
+        }
+
+        // Module-level constants
+        if (@hasField(@TypeOf(config), "consts")) {
+            const consts = config.consts;
+            if (consts.len > 0) {
+                result = result ++ "# Module constants\n";
+                for (consts) |c| {
+                    result = result ++ generateConstStub(std.mem.span(c.name), c.value_type);
+                }
+                result = result ++ "\n";
             }
         }
 

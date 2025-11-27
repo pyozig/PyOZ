@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-11-27
+
+### Added
+- **Full documentation site** at [pyoz.dev](https://pyoz.dev)
+  - Complete guide covering functions, classes, properties, types, errors, enums, NumPy, GIL, submodules, and type stubs
+  - CLI reference for `pyoz init`, `pyoz build`, `pyoz develop`, `pyoz publish`
+  - Built with MkDocs and Material theme with dark/light mode support
+  - Auto-deployed via webhook on push to main
+
+- **Declarative property API** - New `pyoz.property()` for cleaner property definitions
+  ```zig
+  .properties = &.{
+      pyoz.property("length", .{ .get = "get_length", .set = "set_length" }),
+      pyoz.property("area", .{ .get = "get_area" }),  // read-only
+  },
+  ```
+  - Explicit property declaration instead of relying on `get_`/`set_` naming convention
+  - Supports read-only, write-only, and read-write properties
+  - Old `get_X`/`set_X` convention still works for backward compatibility
+
+### Changed
+- **README rewritten** - Minimal, focused README with links to documentation site
+- **CI workflow** - Now only runs on pull requests, not on push
+
+### Fixed
+- **Enum literal type checking** - Fixed compile error when checking exception enum literals
+- **Property stub generation** - Properties now correctly generate type stubs
+
 ## [0.4.0] - 2025-11-27
 
 ### Added

@@ -226,6 +226,7 @@ pub const setErrorFromMapping = errors_mod.setErrorFromMapping;
 const enums_mod = @import("enums.zig");
 pub const EnumDef = enums_mod.EnumDef;
 pub const enumDef = enums_mod.enumDef;
+// Legacy aliases (deprecated - use enumDef which auto-detects)
 pub const StrEnumDef = enums_mod.StrEnumDef;
 pub const strEnumDef = enums_mod.strEnumDef;
 
@@ -344,6 +345,90 @@ fn anyFuncUsesDateTime(comptime funcs_list: anytype) bool {
     return false;
 }
 
+/// Constant definition for module-level constants
+pub const ConstDef = struct {
+    name: [*:0]const u8,
+    value_type: type,
+    value: *const anyopaque,
+};
+
+/// Create a constant definition
+pub fn constant(comptime name: [*:0]const u8, comptime value: anytype) ConstDef {
+    const T = @TypeOf(value);
+    const static = struct {
+        const val: T = value;
+    };
+    return .{
+        .name = name,
+        .value_type = T,
+        .value = @ptrCast(&static.val),
+    };
+}
+
+// =============================================================================
+// Property definition
+// =============================================================================
+
+/// Property definition struct - use with property() function
+/// Example:
+/// ```zig
+/// pub const length = property(.{
+///     .get = fn(self: *const Self) f64 { return @sqrt(self.x * self.x + self.y * self.y); },
+///     .set = fn(self: *Self, value: f64) void { ... },
+///     .doc = "The length of the vector",
+/// });
+/// ```
+pub fn Property(comptime Config: type) type {
+    return struct {
+        pub const __pyoz_property__ = true;
+        pub const config = Config;
+
+        // Extract types from config
+        pub const has_getter = @hasField(Config, "get");
+        pub const has_setter = @hasField(Config, "set");
+        pub const has_doc = @hasField(Config, "doc");
+
+        pub fn getDoc() ?[*:0]const u8 {
+            if (has_doc) {
+                return @field(Config, "doc");
+            }
+            return null;
+        }
+    };
+}
+
+/// Create a property with getter, optional setter, and optional docstring
+/// Usage:
+/// ```zig
+/// const Point = struct {
+///     x: f64,
+///     y: f64,
+///     const Self = @This();
+///
+///     pub const length = pyoz.property(.{
+///         .get = struct {
+///             fn get(self: *const Self) f64 {
+///                 return @sqrt(self.x * self.x + self.y * self.y);
+///             }
+///         }.get,
+///         .set = struct {
+///             fn set(self: *Self, value: f64) void {
+///                 const current = @sqrt(self.x * self.x + self.y * self.y);
+///                 if (current > 0) {
+///                     const factor = value / current;
+///                     self.x *= factor;
+///                     self.y *= factor;
+///                 }
+///             }
+///         }.set,
+///         .doc = "The length (magnitude) of the vector",
+///     });
+/// };
+/// ```
+pub fn property(comptime config: anytype) type {
+    return Property(@TypeOf(config));
+}
+
 /// Create a Python module from configuration
 pub fn module(comptime config: anytype) type {
     const classes = config.classes;
@@ -354,8 +439,11 @@ pub fn module(comptime config: anytype) type {
     const error_mappings = if (@hasField(@TypeOf(config), "error_mappings")) config.error_mappings else &[_]ErrorMapping{};
     const enums = if (@hasField(@TypeOf(config), "enums")) config.enums else &[_]EnumDef{};
     const num_enums = enums.len;
-    const str_enums = if (@hasField(@TypeOf(config), "str_enums")) config.str_enums else &[_]StrEnumDef{};
-    const num_str_enums = str_enums.len;
+    // Legacy str_enums support - merge into unified enums list
+    const legacy_str_enums = if (@hasField(@TypeOf(config), "str_enums")) config.str_enums else &[_]EnumDef{};
+    const num_legacy_str_enums = legacy_str_enums.len;
+    const consts = if (@hasField(@TypeOf(config), "consts")) config.consts else &[_]ConstDef{};
+    const num_consts = consts.len;
 
     // Detect at comptime if this module uses Decimal or DateTime types
     const needs_decimal_init = anyFuncUsesDecimal(funcs);
@@ -522,25 +610,30 @@ pub fn module(comptime config: anytype) type {
                 }
             }
 
-            // Create and add enums to the module
+            // Create and add enums to the module (unified - auto-detects IntEnum vs StrEnum)
             inline for (0..num_enums) |i| {
                 const enum_def = enums[i];
-                const enum_type = module_mod.createEnum(enum_def.zig_type, enum_def.name) orelse {
+                const enum_type = if (enum_def.is_str_enum)
+                    module_mod.createStrEnum(enum_def.zig_type, enum_def.name)
+                else
+                    module_mod.createEnum(enum_def.zig_type, enum_def.name);
+
+                const enum_obj = enum_type orelse {
                     py.Py_DecRef(mod);
                     return null;
                 };
 
                 // Add to module (steals reference on success)
-                if (py.PyModule_AddObject(mod, enum_def.name, enum_type) < 0) {
-                    py.Py_DecRef(enum_type);
+                if (py.PyModule_AddObject(mod, enum_def.name, enum_obj) < 0) {
+                    py.Py_DecRef(enum_obj);
                     py.Py_DecRef(mod);
                     return null;
                 }
             }
 
-            // Create and add string enums to the module
-            inline for (0..num_str_enums) |i| {
-                const str_enum_def = str_enums[i];
+            // Legacy str_enums support (deprecated - use .enums with auto-detection)
+            inline for (0..num_legacy_str_enums) |i| {
+                const str_enum_def = legacy_str_enums[i];
                 const str_enum_type = module_mod.createStrEnum(str_enum_def.zig_type, str_enum_def.name) orelse {
                     py.Py_DecRef(mod);
                     return null;
@@ -549,6 +642,27 @@ pub fn module(comptime config: anytype) type {
                 // Add to module (steals reference on success)
                 if (py.PyModule_AddObject(mod, str_enum_def.name, str_enum_type) < 0) {
                     py.Py_DecRef(str_enum_type);
+                    py.Py_DecRef(mod);
+                    return null;
+                }
+            }
+
+            // Add module-level constants
+            inline for (0..num_consts) |i| {
+                const const_def = consts[i];
+                const T = const_def.value_type;
+                const value_ptr: *const T = @ptrCast(@alignCast(const_def.value));
+                const value = value_ptr.*;
+
+                // Convert to Python object based on type
+                const py_value = Conversions.toPy(T, value) orelse {
+                    py.Py_DecRef(mod);
+                    return null;
+                };
+
+                // Add to module (steals reference on success)
+                if (py.PyModule_AddObject(mod, const_def.name, py_value) < 0) {
+                    py.Py_DecRef(py_value);
                     py.Py_DecRef(mod);
                     return null;
                 }

@@ -1,16 +1,6 @@
 name: CI
 
 on:
-    push:
-        branches: [main]
-        paths:
-            - "src/lib/**"
-            - "src/cli/**"
-            - "src/tests.zig"
-            - "examples/**"
-            - "build.zig"
-            - "build.zig.zon"
-            - ".github/workflows/ci.yml"
     pull_request:
         branches: [main]
         paths:

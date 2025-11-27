@@ -1,0 +1,236 @@
+/* Make logo bigger in header */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+    height: 48px;
+    width: 48px;
+}
+
+/* Grid cards styling */
+.grid.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.grid.cards > ul {
+    display: contents;
+}
+
+.grid.cards > ul > li {
+    list-style: none;
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
+}
+
+.grid.cards > ul > li:hover {
+    border-color: var(--md-primary-fg-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.grid.cards > ul > li > hr {
+    margin: 0.5rem 0;
+    border: none;
+    border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Icon sizing in cards */
+.grid.cards .lg {
+    font-size: 2rem;
+}
+
+.grid.cards .middle {
+    vertical-align: middle;
+}
+
+/* Hero section buttons */
+.md-button {
+    margin: 0.25rem;
+}
+
+/* Center content helper */
+[align="center"] {
+    text-align: center;
+}
+
+/* Badges styling */
+[align="center"] img {
+    margin: 0.25rem;
+}
+
+/* Make comparison table icons colored */
+.md-typeset :is(.twemoji, .emojione) {
+    vertical-align: text-bottom;
+}
+
+/* Primary button styling */
+.md-button--primary {
+    background-color: var(--md-primary-fg-color);
+    border-color: var(--md-primary-fg-color);
+    color: var(--md-primary-bg-color) !important;
+}
+
+.md-button--primary:hover {
+    background-color: var(--md-primary-fg-color--dark);
+    border-color: var(--md-primary-fg-color--dark);
+}
+
+/* Comparison table centered and styled */
+.comparison-table {
+    display: flex;
+    justify-content: center;
+    margin: 2rem 0;
+}
+
+.comparison-table table {
+    width: auto;
+    min-width: 500px;
+    max-width: 700px;
+}
+
+.comparison-table th,
+.comparison-table td {
+    text-align: center !important;
+    padding: 0.75rem 1.25rem !important;
+}
+
+.comparison-table th:first-child,
+.comparison-table td:first-child {
+    text-align: left !important;
+}
+
+/* Color the comparison icons */
+.comparison-table .twemoji svg[class*="check-all"] {
+    color: #4caf50;
+}
+
+.comparison-table .twemoji svg[class*="check"]:not([class*="check-all"]) {
+    color: #8bc34a;
+}
+
+.comparison-table .twemoji svg[class*="close"] {
+    color: #f44336;
+}
+
+/* Alternative: color via path fill */
+.comparison-table svg path {
+    fill: currentColor;
+}
+
+.md-typeset .comparison-table :is([data-md-color-icon="check-all"]),
+.md-typeset .comparison-table .twemoji:has(svg[class*="check-all"]) {
+    color: #4caf50;
+}
+
+/* Header icons */
+.pyoz-icon svg {
+    color: #f7a41d !important;
+}
+
+.rust-icon svg {
+    color: #dea584 !important;
+}
+
+.python-icon svg {
+    color: #3776ab !important;
+}
+
+/* Colored check/close icons */
+.green svg {
+    color: #4caf50 !important;
+}
+
+.lime svg {
+    color: #8bc34a !important;
+}
+
+.red svg {
+    color: #f44336 !important;
+}
+
+.orange svg {
+    color: #ff9800 !important;
+}
+
+/* Hero card icon colors */
+.icon-orange svg {
+    color: #f7a41d !important;
+}
+
+.icon-green svg {
+    color: #4caf50 !important;
+}
+
+.icon-purple svg {
+    color: #7c4dff !important;
+}
+
+.icon-blue svg {
+    color: #3776ab !important;
+}
+
+/* Hero logo */
+.hero-logo {
+    width: 150px;
+    height: 150px;
+    margin-bottom: 1rem;
+}
+
+/* Footer */
+.md-footer-meta {
+    justify-content: center;
+    padding: 1rem 0;
+}
+
+.md-footer-meta__inner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.md-footer-copyright {
+    margin: 0 auto;
+    padding: 0;
+}
+
+.md-social {
+    display: none;
+}
+
+.custom-footer {
+    text-align: center;
+    font-size: 0.75rem;
+}
+
+.custom-footer a {
+    color: inherit;
+    text-decoration: underline;
+}
+
+/* Beating heart animation */
+@keyframes heartbeat {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    25% {
+        transform: scale(1.2);
+    }
+    50% {
+        transform: scale(1);
+    }
+    75% {
+        transform: scale(1.2);
+    }
+}
+
+.heart {
+    display: inline-block;
+    animation: heartbeat 1.5s ease-in-out infinite;
+    color: #e91e63;
+}

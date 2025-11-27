@@ -1,6 +1,7 @@
 //! Properties (getset) generation for class generation
 //!
 //! Generates getters and setters for struct fields and computed properties
+//! Supports both get_X/set_X naming convention and pyoz.property() declarations
 
 const std = @import("std");
 const py = @import("../python.zig");
@@ -8,6 +9,19 @@ const conversion = @import("../conversion.zig");
 
 fn getConversions() type {
     return conversion.Conversions;
+}
+
+/// Check if a declaration is a pyoz.property (checks the actual type value, not metatype)
+fn isPyozPropertyDecl(comptime T: type, comptime decl_name: []const u8) bool {
+    const DeclType = @TypeOf(@field(T, decl_name));
+    // If this declaration is a type (e.g., pub const foo = SomeType)
+    if (DeclType == type) {
+        const ActualType = @field(T, decl_name);
+        if (@hasDecl(ActualType, "__pyoz_property__")) {
+            return ActualType.__pyoz_property__;
+        }
+    }
+    return false;
 }
 
 /// Build properties for a given type
@@ -27,7 +41,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
             return @hasDecl(T, setter_name);
         }
 
-        // Count computed properties
+        // Count computed properties (get_X style)
         fn countComputedProperties() usize {
             const type_decls = @typeInfo(T).@"struct".decls;
             var count: usize = 0;
@@ -49,8 +63,21 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
             return count;
         }
 
+        // Count pyoz.property() declarations
+        fn countPyozProperties() usize {
+            const type_decls = @typeInfo(T).@"struct".decls;
+            var count: usize = 0;
+            for (type_decls) |decl| {
+                if (isPyozPropertyDecl(T, decl.name)) {
+                    count += 1;
+                }
+            }
+            return count;
+        }
+
         pub const computed_props_count = countComputedProperties();
-        pub const total_getset_count = fields.len + computed_props_count + 1;
+        pub const pyoz_props_count = countPyozProperties();
+        pub const total_getset_count = fields.len + computed_props_count + pyoz_props_count + 1;
 
         /// Check if class is frozen
         pub fn isFrozen() bool {
@@ -90,7 +117,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                 };
             }
 
-            // Computed properties
+            // Computed properties (get_X/set_X style)
             var comp_idx: usize = fields.len;
             const type_decls = @typeInfo(T).@"struct".decls;
             for (type_decls) |decl| {
@@ -113,6 +140,20 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                         };
                         comp_idx += 1;
                     }
+                }
+            }
+
+            // pyoz.property() declarations
+            for (type_decls) |decl| {
+                if (isPyozPropertyDecl(T, decl.name)) {
+                    gs[comp_idx] = .{
+                        .name = @ptrCast(decl.name.ptr),
+                        .get = @ptrCast(generatePyozPropertyGetter(decl.name)),
+                        .set = if (isFrozen()) null else @ptrCast(generatePyozPropertySetter(decl.name)),
+                        .doc = getPyozPropertyDoc(decl.name),
+                        .closure = null,
+                    };
+                    comp_idx += 1;
                 }
             }
 
@@ -226,6 +267,70 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                         return -1;
                     };
                     const setter = @field(T, setter_name);
+                    const SetterType = @TypeOf(setter);
+                    const setter_info = @typeInfo(SetterType).@"fn";
+                    const ValueType = setter_info.params[1].type.?;
+                    const converted = getConversions().fromPy(ValueType, py_value) catch {
+                        py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for property: " ++ prop_name);
+                        return -1;
+                    };
+                    setter(self.getData(), converted);
+                    return 0;
+                }
+            }.set;
+        }
+
+        /// Get docstring for a pyoz.property() declaration
+        fn getPyozPropertyDoc(comptime prop_name: []const u8) ?[*:0]const u8 {
+            const PropType = @field(T, prop_name);
+            const ConfigType = PropType.config;
+            if (@hasField(ConfigType, "doc")) {
+                const doc_field = @field(ConfigType{}, "doc");
+                return doc_field;
+            }
+            return null;
+        }
+
+        /// Generate getter for a pyoz.property() declaration
+        fn generatePyozPropertyGetter(comptime prop_name: []const u8) *const fn (?*py.PyObject, ?*anyopaque) callconv(.c) ?*py.PyObject {
+            const PropType = @field(T, prop_name);
+            const ConfigType = PropType.config;
+
+            if (!@hasField(ConfigType, "get")) {
+                @compileError("pyoz.property '" ++ prop_name ++ "' must have a 'get' field");
+            }
+
+            return struct {
+                fn get(self_obj: ?*py.PyObject, closure: ?*anyopaque) callconv(.c) ?*py.PyObject {
+                    _ = closure;
+                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
+                    const config = ConfigType{};
+                    const getter = config.get;
+                    const result = getter(self.getDataConst());
+                    return getConversions().toPy(@TypeOf(result), result);
+                }
+            }.get;
+        }
+
+        /// Generate setter for a pyoz.property() declaration (or null if no setter)
+        fn generatePyozPropertySetter(comptime prop_name: []const u8) ?*const fn (?*py.PyObject, ?*py.PyObject, ?*anyopaque) callconv(.c) c_int {
+            const PropType = @field(T, prop_name);
+            const ConfigType = PropType.config;
+
+            if (!@hasField(ConfigType, "set")) {
+                return null;
+            }
+
+            return struct {
+                fn set(self_obj: ?*py.PyObject, value: ?*py.PyObject, closure: ?*anyopaque) callconv(.c) c_int {
+                    _ = closure;
+                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
+                    const py_value = value orelse {
+                        py.PyErr_SetString(py.PyExc_AttributeError(), "Cannot delete property: " ++ prop_name);
+                        return -1;
+                    };
+                    const config = ConfigType{};
+                    const setter = config.set;
                     const SetterType = @TypeOf(setter);
                     const setter_info = @typeInfo(SetterType).@"fn";
                     const ValueType = setter_info.params[1].type.?;

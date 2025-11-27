@@ -234,14 +234,37 @@ pub const ExceptionDef = struct {
 };
 
 /// Create an exception definition
-pub fn exception(comptime name: [*:0]const u8, comptime opts: struct {
-    doc: ?[*:0]const u8 = null,
-    base: ExcBase = .Exception,
-}) ExceptionDef {
+/// Supports two syntaxes:
+/// - Full options: pyoz.exception("MyError", .{ .doc = "...", .base = .ValueError })
+/// - Shorthand:    pyoz.exception("MyError", .ValueError)
+pub fn exception(comptime name: [*:0]const u8, comptime opts: anytype) ExceptionDef {
+    const OptsType = @TypeOf(opts);
+    const type_info = @typeInfo(OptsType);
+
+    // Check if opts is an enum literal (shorthand syntax like .ValueError)
+    if (type_info == .enum_literal) {
+        const base: ExcBase = opts; // coerce enum literal to ExcBase
+        return .{
+            .name = name,
+            .doc = null,
+            .base = base,
+        };
+    }
+
+    // Check if opts is an ExcBase enum value
+    if (OptsType == ExcBase) {
+        return .{
+            .name = name,
+            .doc = null,
+            .base = opts,
+        };
+    }
+
+    // Otherwise expect a struct with optional doc and base fields
     return .{
         .name = name,
-        .doc = opts.doc,
-        .base = opts.base,
+        .doc = if (@hasField(OptsType, "doc")) opts.doc else null,
+        .base = if (@hasField(OptsType, "base")) opts.base else .Exception,
     };
 }
 

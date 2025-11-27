@@ -2371,6 +2371,78 @@ fn numpy_complex64_sum(arr: pyoz.BufferView(pyoz.Complex32)) pyoz.Complex {
 }
 
 // ============================================================================
+// Temperature - demonstrates pyoz.property() API
+// ============================================================================
+
+/// A temperature class that demonstrates the pyoz.property() API
+/// for cleaner property definitions with getters, setters, and docstrings
+const Temperature = struct {
+    _celsius: f64,
+
+    const Self = @This();
+
+    pub fn __new__(initial_celsius: f64) Temperature {
+        return .{ ._celsius = initial_celsius };
+    }
+
+    pub fn __repr__(self: *const Temperature) []const u8 {
+        _ = self;
+        return "Temperature(...)";
+    }
+
+    /// Property using pyoz.property() - celsius with validation
+    pub const celsius = pyoz.property(.{
+        .get = struct {
+            fn get(self: *const Self) f64 {
+                return self._celsius;
+            }
+        }.get,
+        .set = struct {
+            fn set(self: *Self, value: f64) void {
+                // Clamp to absolute zero minimum
+                self._celsius = if (value < -273.15) -273.15 else value;
+            }
+        }.set,
+        .doc = "Temperature in Celsius (clamped to >= -273.15)",
+    });
+
+    /// Property using pyoz.property() - fahrenheit (computed, read-write)
+    pub const fahrenheit = pyoz.property(.{
+        .get = struct {
+            fn get(self: *const Self) f64 {
+                return self._celsius * 9.0 / 5.0 + 32.0;
+            }
+        }.get,
+        .set = struct {
+            fn set(self: *Self, value: f64) void {
+                self._celsius = (value - 32.0) * 5.0 / 9.0;
+            }
+        }.set,
+        .doc = "Temperature in Fahrenheit",
+    });
+
+    /// Property using pyoz.property() - kelvin (read-only, no setter)
+    pub const kelvin = pyoz.property(.{
+        .get = struct {
+            fn get(self: *const Self) f64 {
+                return self._celsius + 273.15;
+            }
+        }.get,
+        .doc = "Temperature in Kelvin (read-only)",
+    });
+
+    /// Check if temperature is below freezing
+    pub fn is_freezing(self: *const Self) bool {
+        return self._celsius < 0.0;
+    }
+
+    /// Check if temperature is boiling (at sea level)
+    pub fn is_boiling(self: *const Self) bool {
+        return self._celsius >= 100.0;
+    }
+};
+
+// ============================================================================
 // Module Definition
 // ============================================================================
 
@@ -2513,12 +2585,13 @@ const Example = pyoz.module(.{
         pyoz.class("DefaultDict", DefaultDict),
         pyoz.class("Container", Container),
         pyoz.class("Flexible", Flexible),
+        pyoz.class("Temperature", Temperature),
     },
     .exceptions = &.{
         pyoz.exception("ValidationError", .{ .doc = "Raised when validation fails", .base = .ValueError }),
         pyoz.exception("MathError", .{ .doc = "Raised for math errors like division by zero", .base = .RuntimeError }),
-        pyoz.exception("MyTypeError", .{ .doc = "Custom type error", .base = .TypeError }),
-        pyoz.exception("MyIndexError", .{ .doc = "Custom index error", .base = .IndexError }),
+        pyoz.exception("MyTypeError", .TypeError), // shorthand syntax
+        pyoz.exception("MyIndexError", .IndexError), // shorthand syntax
     },
     .error_mappings = &.{
         pyoz.mapError("NegativeValue", .ValueError),
@@ -2528,12 +2601,16 @@ const Example = pyoz.module(.{
         pyoz.mapError("DivisionByZero", .RuntimeError),
     },
     .enums = &.{
-        pyoz.enumDef("Color", Color),
-        pyoz.enumDef("HttpStatus", HttpStatus),
+        pyoz.enumDef("Color", Color), // auto-detected as IntEnum (enum(i32))
+        pyoz.enumDef("HttpStatus", HttpStatus), // auto-detected as IntEnum (enum(i32))
+        pyoz.enumDef("TaskStatus", TaskStatus), // auto-detected as StrEnum (plain enum)
+        pyoz.enumDef("LogLevel", LogLevel), // auto-detected as StrEnum (plain enum)
     },
-    .str_enums = &.{
-        pyoz.strEnumDef("TaskStatus", TaskStatus),
-        pyoz.strEnumDef("LogLevel", LogLevel),
+    .consts = &.{
+        pyoz.constant("VERSION", "1.0.0"),
+        pyoz.constant("PI", 3.14159265358979),
+        pyoz.constant("MAX_VALUE", @as(i64, 1000000)),
+        pyoz.constant("DEBUG", false),
     },
 });
 

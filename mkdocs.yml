@@ -1,0 +1,96 @@
+site_name: PyOZ
+site_description: Python extensions in Zig, made easy
+site_url: https://dzonerzy.github.io/PyOZ
+repo_url: https://github.com/dzonerzy/PyOZ
+repo_name: dzonerzy/PyOZ
+
+theme:
+    name: material
+    custom_dir: docs/overrides
+    palette:
+        # Light mode
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: deep purple
+          accent: amber
+          toggle:
+              icon: material/brightness-7
+              name: Switch to dark mode
+        # Dark mode
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: deep purple
+          accent: amber
+          toggle:
+              icon: material/brightness-4
+              name: Switch to light mode
+    features:
+        - navigation.instant
+        - navigation.tracking
+        - navigation.sections
+        - navigation.expand
+        - navigation.top
+        - search.suggest
+        - search.highlight
+        - content.code.copy
+        - content.code.annotate
+    icon:
+        repo: fontawesome/brands/github
+    logo: assets/logo.svg
+    favicon: assets/favicon.svg
+
+markdown_extensions:
+    - pymdownx.highlight:
+          anchor_linenums: true
+          line_spans: __span
+          pygments_lang_class: true
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+    - pymdownx.tabbed:
+          alternate_style: true
+    - pymdownx.emoji:
+          emoji_index: !!python/name:material.extensions.emoji.twemoji
+          emoji_generator: !!python/name:material.extensions.emoji.to_svg
+    - admonition
+    - pymdownx.details
+    - tables
+    - attr_list
+    - md_in_html
+    - def_list
+    - toc:
+          permalink: true
+
+plugins:
+    - search
+
+extra_css:
+    - assets/extra.css
+
+extra:
+    generator: false
+
+nav:
+    - Home: index.md
+    - Getting Started:
+          - Installation: installation.md
+          - Quickstart: quickstart.md
+    - Guide:
+          - Functions: guide/functions.md
+          - Classes: guide/classes.md
+          - Properties: guide/properties.md
+          - Types: guide/types.md
+          - Errors: guide/errors.md
+          - Enums & Constants: guide/enums.md
+          - NumPy Integration: guide/numpy.md
+          - GIL Management: guide/gil.md
+          - Submodules: guide/submodules.md
+          - Type Stubs: guide/stubs.md
+    - CLI:
+          - pyoz init: cli/init.md
+          - pyoz build: cli/build.md
+          - Configuration: cli/configuration.md
+    - Examples:
+          - Complete Module: examples/complete-module.md
+    - Reference:
+          - API: reference/api.md

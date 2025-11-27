@@ -33,3 +33,6 @@ htmlcov/
 
 # zls
 .zls.json
+
+# MkDocs
+site/
