@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Property getter exception handling** - When a field's type cannot be converted to Python, accessing the property now correctly raises a `TypeError` instead of returning `NULL` without setting an exception (which caused undefined behavior)
 - **Custom class names now work correctly** - When registering a class with `pyoz.class("CustomName", T)`, the Python-visible class name (`__name__`) now correctly uses the custom name instead of the Zig type name. This affects both ABI3 and non-ABI3 modes.
+- **Improved error message preservation** - When conversion code sets a Python exception (via `PyErr_SetString`) before returning a Zig error, that exception is now preserved instead of being overwritten with a generic `RuntimeError`. This ensures users see the actual error message rather than just the error enum name.
+- **BufferView.get2D/set2D no longer panic on wrong dimensions** - The `get2D()` and `set2D()` methods on `BufferView` and `BufferViewMut` now raise a `ValueError` with a descriptive message ("get2D requires a 2D array" / "set2D requires a 2D array") instead of panicking when called on non-2D arrays. This prevents crashes when Python users pass 1D arrays to functions expecting 2D arrays.
+
+### Security
+- **Fixed integer overflow in sequence protocol for unsigned index types** - When a class's `__getitem__`, `__setitem__`, or `__delitem__` uses an unsigned integer type (e.g., `usize`) for the index parameter, negative indices from Python would previously cause an `@intCast` overflow. This resulted in a panic in safe/debug builds or undefined behavior (out-of-bounds memory access) in release builds. PyOZ now implements Python-style negative index wrapping (`arr[-1]` → `arr[len-1]`) for unsigned index types, and raises `IndexError` for indices that are still negative after wrapping (e.g., `arr[-100]` on an 8-element array).
+
+- **Fixed buffer protocol crash on negative shape/ndim values** - When consuming buffers via `BufferView`, PyOZ now validates that `ndim` and all shape dimensions are non-negative before casting to unsigned types. Previously, a buffer with negative shape values (from a buggy `__buffer__` implementation) would cause an `@intCast` panic in safe mode or memory corruption in release mode. PyOZ now raises `ValueError` with a clear message ("Buffer has negative shape dimension" or "Buffer has negative ndim"). This affects both standard and ABI3 modes.
+
+- **Fixed BufferView.get2D/set2D crash on negative strides** - The `get2D()` and `set2D()` methods now validate that strides are non-negative before casting to unsigned types. Previously, a buffer with negative strides would cause an `@intCast` panic in safe mode or memory corruption in release mode. PyOZ now raises `ValueError` with a clear message ("Buffer has negative strides").
+
+- **Fixed integer conversion crash on overflow** - When converting Python integers to smaller Zig integer types (e.g., `u8`, `i16`), values that exceed the target type's range now wrap (truncate) like C instead of causing an `@intCast` panic. For example, passing `300` to a function expecting `u8` now results in `44` (300 mod 256) instead of crashing.
+
+- **Added null buffer pointer validation** - PyOZ now validates that the buffer data pointer is not null before creating a BufferView. A malicious `__buffer__` implementation that returns success but sets `buf` to NULL now raises `ValueError` instead of crashing.
 
 ## [0.6.0] - 2025-11-30
 

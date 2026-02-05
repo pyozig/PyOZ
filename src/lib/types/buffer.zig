@@ -135,14 +135,23 @@ pub fn BufferView(comptime T: type) type {
         }
 
         /// Get element at 2D index (row, col) - only valid for 2D arrays
-        pub fn get2D(self: Self, row: usize, col: usize) T {
-            if (self.ndim != 2) @panic("get2D requires 2D array");
+        /// Returns error.DimensionMismatch if called on non-2D array
+        pub fn get2D(self: Self, row: usize, col: usize) !T {
+            if (self.ndim != 2) {
+                py.PyErr_SetString(py.PyExc_ValueError(), "get2D requires a 2D array");
+                return error.DimensionMismatch;
+            }
             if (abi3_enabled) {
                 // ABI3: data is always C-contiguous
                 const num_cols: usize = @intCast(self.shape[1]);
                 return self.data[row * num_cols + col];
             } else {
                 if (self.strides) |strd| {
+                    // Validate strides are non-negative before casting
+                    if (strd[0] < 0 or strd[1] < 0) {
+                        py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative strides");
+                        return error.ValueError;
+                    }
                     // Use strides for non-contiguous access
                     const byte_offset = @as(usize, @intCast(strd[0])) * row + @as(usize, @intCast(strd[1])) * col;
                     const ptr: [*]const T = @ptrCast(@alignCast(self._buffer.buf.?));
@@ -290,9 +299,18 @@ pub fn BufferViewMut(comptime T: type) type {
         }
 
         /// Get element at 2D index (row, col)
-        pub fn get2D(self: Self, row: usize, col: usize) T {
-            if (self.ndim != 2) @panic("get2D requires 2D array");
+        /// Returns error.DimensionMismatch if called on non-2D array
+        pub fn get2D(self: Self, row: usize, col: usize) !T {
+            if (self.ndim != 2) {
+                py.PyErr_SetString(py.PyExc_ValueError(), "get2D requires a 2D array");
+                return error.DimensionMismatch;
+            }
             if (self.strides) |strd| {
+                // Validate strides are non-negative before casting
+                if (strd[0] < 0 or strd[1] < 0) {
+                    py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative strides");
+                    return error.ValueError;
+                }
                 const byte_offset = @as(usize, @intCast(strd[0])) * row + @as(usize, @intCast(strd[1])) * col;
                 const ptr: [*]T = @ptrCast(@alignCast(self._buffer.buf.?));
                 const byte_ptr: [*]u8 = @ptrCast(ptr);
@@ -304,9 +322,18 @@ pub fn BufferViewMut(comptime T: type) type {
         }
 
         /// Set element at 2D index (row, col)
-        pub fn set2D(self: Self, row: usize, col: usize, value: T) void {
-            if (self.ndim != 2) @panic("set2D requires 2D array");
+        /// Returns error.DimensionMismatch if called on non-2D array
+        pub fn set2D(self: Self, row: usize, col: usize, value: T) !void {
+            if (self.ndim != 2) {
+                py.PyErr_SetString(py.PyExc_ValueError(), "set2D requires a 2D array");
+                return error.DimensionMismatch;
+            }
             if (self.strides) |strd| {
+                // Validate strides are non-negative before casting
+                if (strd[0] < 0 or strd[1] < 0) {
+                    py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative strides");
+                    return error.ValueError;
+                }
                 const byte_offset = @as(usize, @intCast(strd[0])) * row + @as(usize, @intCast(strd[1])) * col;
                 const ptr: [*]T = @ptrCast(@alignCast(self._buffer.buf.?));
                 const byte_ptr: [*]u8 = @ptrCast(ptr);

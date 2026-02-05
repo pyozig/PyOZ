@@ -1271,6 +1271,67 @@ test "IntArray - append" {
 }
 
 // ============================================================================
+// CLASS: VulnArray (sequence protocol with usize index - tests negative index wrapping)
+// ============================================================================
+
+test "VulnArray - creation" {
+    const python = try initTestPython();
+
+    try python.exec("arr = example.VulnArray.new()");
+    try std.testing.expectEqual(@as(i64, 8), try python.eval(i64, "len(arr)"));
+}
+
+test "VulnArray - __getitem__ positive index" {
+    const python = try initTestPython();
+
+    try python.exec("arr = example.VulnArray.new()");
+    try std.testing.expectEqual(@as(i64, 10), try python.eval(i64, "arr[0]"));
+    try std.testing.expectEqual(@as(i64, 80), try python.eval(i64, "arr[7]"));
+}
+
+test "VulnArray - __getitem__ negative index raises IndexError for usize" {
+    // For classes with usize index, negative indices via mapping protocol raise IndexError
+    // (Python's PyLong_AsUnsignedLongLong rejects negative values)
+    const python = try initTestPython();
+
+    try python.exec("arr = example.VulnArray.new()");
+    try python.exec(
+        \\try:
+        \\    _ = arr[-1]
+        \\    result = False
+        \\except IndexError:
+        \\    result = True
+    );
+    try std.testing.expect(try python.eval(bool, "result"));
+}
+
+test "VulnArray - PySequence_GetItem negative index wrapping via ctypes" {
+    // Tests the fix via ctypes to force sequence protocol (bypasses mapping protocol)
+    const python = try initTestPython();
+
+    try python.exec("import ctypes");
+    try python.exec("arr = example.VulnArray.new()");
+    try python.exec(
+        \\PySequence_GetItem = ctypes.pythonapi.PySequence_GetItem
+        \\PySequence_GetItem.argtypes = [ctypes.py_object, ctypes.c_ssize_t]
+        \\PySequence_GetItem.restype = ctypes.py_object
+    );
+    // Test wrapping works via sequence protocol
+    try std.testing.expectEqual(@as(i64, 80), try python.eval(i64, "PySequence_GetItem(arr, -1)"));
+    try std.testing.expectEqual(@as(i64, 10), try python.eval(i64, "PySequence_GetItem(arr, -8)"));
+
+    // Test out-of-range raises IndexError (not crash/panic)
+    try python.exec(
+        \\try:
+        \\    PySequence_GetItem(arr, -100)
+        \\    seq_result = False
+        \\except IndexError:
+        \\    seq_result = True
+    );
+    try std.testing.expect(try python.eval(bool, "seq_result"));
+}
+
+// ============================================================================
 // CLASS: ReversibleList
 // ============================================================================
 
@@ -2694,7 +2755,7 @@ test "numpy - non-contiguous array rejected" {
         \\try:
         \\    example.numpy_sum(arr)
         \\    non_contig_raised = False
-        \\except (TypeError, RuntimeError, BufferError):
+        \\except (TypeError, RuntimeError, BufferError, ValueError):
         \\    non_contig_raised = True
     );
     try std.testing.expect(try python.eval(bool, "non_contig_raised"));
@@ -2711,6 +2772,50 @@ test "numpy - mismatched lengths raises ValueError" {
         \\    mismatch_raised = True
     );
     try std.testing.expect(try python.eval(bool, "mismatch_raised"));
+}
+
+test "BadBuffer - negative shape raises ValueError instead of crashing" {
+    const python = try initTestPython();
+    // BadBuffer exports a buffer with shape=[-1] which should be rejected
+    try python.exec(
+        \\bad = example.BadBuffer.new()
+        \\try:
+        \\    example.numpy_sum_int(bad)
+        \\    bad_shape_raised = False
+        \\except ValueError as e:
+        \\    bad_shape_raised = "negative shape" in str(e)
+    );
+    try std.testing.expect(try python.eval(bool, "bad_shape_raised"));
+}
+
+test "numpy_get_2d - dimension mismatch raises ValueError" {
+    const python = try initTestPython();
+    try requireNumpy(python);
+    // Calling get2D on a 1D array should raise ValueError, not crash
+    try python.exec(
+        \\arr_1d = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+        \\try:
+        \\    example.numpy_get_2d(arr_1d, 0, 0)
+        \\    dim_mismatch_raised = False
+        \\except ValueError as e:
+        \\    dim_mismatch_raised = "2D array" in str(e)
+    );
+    try std.testing.expect(try python.eval(bool, "dim_mismatch_raised"));
+}
+
+test "BadStrideBuffer - negative strides raise ValueError" {
+    const python = try initTestPython();
+    // BadStrideBuffer exports a buffer with negative strides
+    // get2D should validate strides and raise ValueError, not crash
+    try python.exec(
+        \\buf = example.BadStrideBuffer.new()
+        \\try:
+        \\    example.buffer_get_2d_i64(buf, 0, 0)
+        \\    bad_stride_raised = False
+        \\except ValueError as e:
+        \\    bad_stride_raised = "negative strides" in str(e)
+    );
+    try std.testing.expect(try python.eval(bool, "bad_stride_raised"));
 }
 
 // ============================================================================

@@ -38,18 +38,47 @@ pub fn SequenceProtocol(comptime T: type, comptime Parent: type) type {
             return @intCast(result);
         }
 
+        /// Helper to convert index with Python-style negative wrapping for unsigned types
+        fn wrapIndexConst(comptime IndexType: type, index: py.Py_ssize_t, self: *Parent.PyWrapper) ?IndexType {
+            if (@typeInfo(IndexType) == .int) {
+                const int_info = @typeInfo(IndexType).int;
+                if (int_info.signedness == .unsigned and index < 0) {
+                    if (@hasDecl(T, "__len__")) {
+                        const len: py.Py_ssize_t = @intCast(T.__len__(self.getDataConst()));
+                        const wrapped = index + len;
+                        if (wrapped < 0) {
+                            py.PyErr_SetString(py.PyExc_IndexError(), "index out of range");
+                            return null;
+                        }
+                        return @intCast(wrapped);
+                    } else {
+                        py.PyErr_SetString(py.PyExc_IndexError(), "negative index not supported");
+                        return null;
+                    }
+                }
+            }
+            return @intCast(index);
+        }
+
         fn py_sq_item(self_obj: ?*py.PyObject, index: py.Py_ssize_t) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const GetItemRetType = @typeInfo(@TypeOf(T.__getitem__)).@"fn".return_type.?;
+            const GetItemFn = @TypeOf(T.__getitem__);
+            const fn_info = @typeInfo(GetItemFn).@"fn";
+            const IndexType = fn_info.params[1].type.?;
+            const GetItemRetType = fn_info.return_type.?;
+
+            // Wrap negative index for unsigned types
+            const idx = wrapIndexConst(IndexType, index, self) orelse return null;
+
             if (@typeInfo(GetItemRetType) == .error_union) {
-                const result = T.__getitem__(self.getDataConst(), @intCast(index)) catch |err| {
+                const result = T.__getitem__(self.getDataConst(), idx) catch |err| {
                     const msg = @errorName(err);
                     py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
                     return null;
                 };
                 return getConversions().toPy(@TypeOf(result), result);
             } else {
-                const result = T.__getitem__(self.getDataConst(), @intCast(index));
+                const result = T.__getitem__(self.getDataConst(), idx);
                 return getConversions().toPy(GetItemRetType, result);
             }
         }
@@ -81,7 +110,11 @@ pub fn SequenceProtocol(comptime T: type, comptime Parent: type) type {
 
                 const SetItemFn = @TypeOf(T.__setitem__);
                 const set_fn_info = @typeInfo(SetItemFn).@"fn";
+                const IndexType = set_fn_info.params[1].type.?;
                 const ValueType = set_fn_info.params[2].type.?;
+
+                // Wrap negative index for unsigned types
+                const idx = wrapIndexConst(IndexType, index, self) orelse return -1;
 
                 const zig_value = getConversions().fromPy(ValueType, value) catch {
                     py.PyErr_SetString(py.PyExc_TypeError(), "invalid value type for __setitem__");
@@ -90,13 +123,13 @@ pub fn SequenceProtocol(comptime T: type, comptime Parent: type) type {
 
                 const SetRetType = set_fn_info.return_type.?;
                 if (@typeInfo(SetRetType) == .error_union) {
-                    T.__setitem__(self.getData(), @intCast(index), zig_value) catch |err| {
+                    T.__setitem__(self.getData(), idx, zig_value) catch |err| {
                         const msg = @errorName(err);
                         py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
                         return -1;
                     };
                 } else {
-                    T.__setitem__(self.getData(), @intCast(index), zig_value);
+                    T.__setitem__(self.getData(), idx, zig_value);
                 }
                 return 0;
             } else {
@@ -105,15 +138,22 @@ pub fn SequenceProtocol(comptime T: type, comptime Parent: type) type {
                     return -1;
                 }
 
-                const DelRetType = @typeInfo(@TypeOf(T.__delitem__)).@"fn".return_type.?;
+                const DelItemFn = @TypeOf(T.__delitem__);
+                const del_fn_info = @typeInfo(DelItemFn).@"fn";
+                const DelIndexType = del_fn_info.params[1].type.?;
+
+                // Wrap negative index for unsigned types
+                const del_idx = wrapIndexConst(DelIndexType, index, self) orelse return -1;
+
+                const DelRetType = del_fn_info.return_type.?;
                 if (@typeInfo(DelRetType) == .error_union) {
-                    T.__delitem__(self.getData(), @intCast(index)) catch |err| {
+                    T.__delitem__(self.getData(), del_idx) catch |err| {
                         const msg = @errorName(err);
                         py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
                         return -1;
                     };
                 } else {
-                    T.__delitem__(self.getData(), @intCast(index));
+                    T.__delitem__(self.getData(), del_idx);
                 }
                 return 0;
             }

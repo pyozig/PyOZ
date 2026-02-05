@@ -873,6 +873,90 @@ const BoundedValue = struct {
 };
 
 // ============================================================================
+// VulnArray - test class with usize index to verify PyOZ negative index fix
+// ============================================================================
+
+const VulnArray = struct {
+    data: [8]i64 = [_]i64{ 10, 20, 30, 40, 50, 60, 70, 80 },
+
+    pub fn new() VulnArray {
+        return VulnArray{};
+    }
+
+    pub fn __len__(self: *const VulnArray) usize {
+        _ = self;
+        return 8;
+    }
+
+    // Uses usize - PyOZ should wrap negative indices automatically
+    pub fn __getitem__(self: *const VulnArray, index: usize) i64 {
+        return self.data[index];
+    }
+};
+
+// ============================================================================
+// BadBuffer - test class that exports a buffer with negative shape (for security testing)
+// This tests that PyOZ validates buffer shape values before using them
+// ============================================================================
+
+const BadBuffer = struct {
+    data: [8]i64 = [_]i64{ 1, 2, 3, 4, 5, 6, 7, 8 },
+
+    pub fn new() BadBuffer {
+        return BadBuffer{};
+    }
+
+    // Deliberately malformed buffer shape - negative value
+    var bad_shape: [1]pyoz.Py_ssize_t = .{-1};
+    var buffer_format: [2:0]u8 = .{ 'q', 0 }; // 'q' = signed long long (i64)
+
+    /// __buffer__ - exports buffer with NEGATIVE shape (bug test)
+    pub fn __buffer__(self: *BadBuffer) pyoz.BufferInfo {
+        return .{
+            .ptr = @ptrCast(&self.data),
+            .len = 8 * @sizeOf(i64),
+            .readonly = true,
+            .format = &buffer_format,
+            .itemsize = @sizeOf(i64),
+            .ndim = 1,
+            .shape = &bad_shape, // NEGATIVE! Should cause PyOZ to reject
+            .strides = null,
+        };
+    }
+};
+
+// ============================================================================
+// BadStrideBuffer - test class that exports a buffer with negative strides (for security testing)
+// ============================================================================
+
+const BadStrideBuffer = struct {
+    data: [4]i64 = [_]i64{ 1, 2, 3, 4 },
+
+    pub fn new() BadStrideBuffer {
+        return BadStrideBuffer{};
+    }
+
+    // Valid shape but NEGATIVE stride
+    var shape_2d: [2]pyoz.Py_ssize_t = .{ 2, 2 }; // 2x2 array
+    var bad_strides: [2]pyoz.Py_ssize_t = .{ -16, 8 }; // NEGATIVE row stride!
+    var buffer_format: [2:0]u8 = .{ 'q', 0 }; // 'q' = signed long long (i64)
+
+    /// __buffer__ - exports buffer with NEGATIVE strides (bug test)
+    pub fn __buffer__(self: *BadStrideBuffer) pyoz.BufferInfo {
+        return .{
+            .ptr = @ptrCast(&self.data),
+            .len = 4 * @sizeOf(i64),
+            .readonly = true,
+            .format = &buffer_format,
+            .itemsize = @sizeOf(i64),
+            .ndim = 2,
+            .shape = &shape_2d,
+            .strides = &bad_strides, // NEGATIVE! Should cause panic in get2D
+        };
+    }
+};
+
+// ============================================================================
 // IntArray - demonstrates sequence protocol (__len__, __getitem__, __contains__, __iter__)
 // ============================================================================
 
@@ -888,40 +972,38 @@ const IntArray = struct {
 
     /// __getitem__ - get item by index
     pub fn __getitem__(self: *const IntArray, index: i64) !i64 {
-        const idx: usize = if (index < 0)
-            @intCast(@as(i64, @intCast(self.len)) + index)
-        else
-            @intCast(index);
+        const len_i64: i64 = @intCast(self.len);
+        const wrapped = if (index < 0) index + len_i64 else index;
 
-        if (idx >= self.len) {
+        // Check bounds after wrapping (handles both negative overflow and positive overflow)
+        if (wrapped < 0 or wrapped >= len_i64) {
             return error.IndexOutOfBounds;
         }
-        return self.data[idx];
+
+        return self.data[@intCast(wrapped)];
     }
 
     /// __setitem__ - set item by index
     pub fn __setitem__(self: *IntArray, index: i64, value: i64) !void {
-        const idx: usize = if (index < 0)
-            @intCast(@as(i64, @intCast(self.len)) + index)
-        else
-            @intCast(index);
+        const len_i64: i64 = @intCast(self.len);
+        const wrapped = if (index < 0) index + len_i64 else index;
 
-        if (idx >= self.len) {
+        if (wrapped < 0 or wrapped >= len_i64) {
             return error.IndexOutOfBounds;
         }
-        self.data[idx] = value;
+        self.data[@intCast(wrapped)] = value;
     }
 
     /// __delitem__ - delete item by index (shifts remaining items)
     pub fn __delitem__(self: *IntArray, index: i64) !void {
-        const idx: usize = if (index < 0)
-            @intCast(@as(i64, @intCast(self.len)) + index)
-        else
-            @intCast(index);
+        const len_i64: i64 = @intCast(self.len);
+        const wrapped = if (index < 0) index + len_i64 else index;
 
-        if (idx >= self.len) {
+        if (wrapped < 0 or wrapped >= len_i64) {
             return error.IndexOutOfBounds;
         }
+
+        const idx: usize = @intCast(wrapped);
 
         // Shift remaining elements
         var i: usize = idx;
@@ -2219,6 +2301,17 @@ fn numpy_sum(arr: pyoz.BufferView(f64)) f64 {
     return total;
 }
 
+/// Get element at 2D index - tests get2D error handling
+/// Returns error.DimensionMismatch if array is not 2D
+fn numpy_get_2d(arr: pyoz.BufferView(f64), row: usize, col: usize) !f64 {
+    return arr.get2D(row, col);
+}
+
+/// Get element at 2D index for i64 arrays - tests stride handling
+fn buffer_get_2d_i64(arr: pyoz.BufferView(i64), row: usize, col: usize) !i64 {
+    return arr.get2D(row, col);
+}
+
 /// Calculate mean of a numpy array
 fn numpy_mean(arr: pyoz.BufferView(f64)) ?f64 {
     if (arr.len() == 0) return null;
@@ -2673,6 +2766,8 @@ const Example = pyoz.module(.{
         pyoz.func("dot_product_3d", dot_product_3d, "Dot product of two 3D vectors"),
         // Numpy / BufferView functions (zero-copy array operations)
         pyoz.func("numpy_sum", numpy_sum, "Sum all elements in a numpy array (zero-copy)"),
+        pyoz.func("numpy_get_2d", numpy_get_2d, "Get element at 2D index (tests dimension mismatch handling)"),
+        pyoz.func("buffer_get_2d_i64", buffer_get_2d_i64, "Get element at 2D index for i64 arrays"),
         pyoz.func("numpy_mean", numpy_mean, "Calculate mean of a numpy array"),
         pyoz.func("numpy_minmax", numpy_minmax, "Find min and max of a numpy array"),
         pyoz.func("numpy_dot", numpy_dot, "Compute dot product of two numpy arrays"),
@@ -2700,6 +2795,9 @@ const Example = pyoz.module(.{
         pyoz.class("Point", Point),
         pyoz.class("BoundedValue", BoundedValue),
         pyoz.class("IntArray", IntArray),
+        pyoz.class("VulnArray", VulnArray),
+        pyoz.class("BadBuffer", BadBuffer),
+        pyoz.class("BadStrideBuffer", BadStrideBuffer),
         pyoz.class("Version", Version),
         pyoz.class("Number", Number),
         pyoz.class("Timer", Timer),

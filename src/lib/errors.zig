@@ -37,6 +37,11 @@ pub fn mapErrorMsg(comptime error_name: []const u8, comptime exc_type: ExcBase, 
 
 /// Helper to set a Python exception from a Zig error using the mapping
 pub fn setErrorFromMapping(comptime mappings: []const ErrorMapping, err: anyerror) void {
+    // If a Python exception is already set (e.g., by conversion code), preserve it
+    if (py.PyErr_Occurred() != null) {
+        return;
+    }
+
     const err_name = @errorName(err);
 
     // Search for a mapping

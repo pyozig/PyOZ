@@ -565,14 +565,33 @@ pub fn Converter(comptime class_types: []const type) type {
                         }
 
                         // Calculate total number of elements
+                        // Validate ndim is non-negative before casting
+                        if (buffer.ndim < 0) {
+                            py.PyBuffer_Release(&buffer);
+                            py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative ndim");
+                            return error.ValueError;
+                        }
                         var num_elements: usize = 1;
                         const ndim: usize = @intCast(buffer.ndim);
                         if (buffer.shape) |shape| {
                             for (0..ndim) |i| {
+                                // Validate shape values are non-negative before casting
+                                if (shape[i] < 0) {
+                                    py.PyBuffer_Release(&buffer);
+                                    py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative shape dimension");
+                                    return error.ValueError;
+                                }
                                 num_elements *= @intCast(shape[i]);
                             }
                         } else {
                             num_elements = @intCast(@divExact(buffer.len, buffer.itemsize));
+                        }
+
+                        // Validate buffer pointer is not null (defensive check)
+                        if (buffer.buf == null) {
+                            py.PyBuffer_Release(&buffer);
+                            py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has null data pointer");
+                            return error.ValueError;
                         }
 
                         // Create the slice from the buffer
@@ -624,11 +643,13 @@ pub fn Converter(comptime class_types: []const type) type {
                     if (int_info.signedness == .signed) {
                         const val = py.PyLong_AsLongLong(obj);
                         if (py.PyErr_Occurred() != null) return error.ConversionError;
-                        return @intCast(val);
+                        // Truncate to target type (wrap on overflow, like C)
+                        return @truncate(val);
                     } else {
                         const val = py.PyLong_AsUnsignedLongLong(obj);
                         if (py.PyErr_Occurred() != null) return error.ConversionError;
-                        return @intCast(val);
+                        // Truncate to target type (wrap on overflow, like C)
+                        return @truncate(val);
                     }
                 },
                 .float => {
@@ -722,7 +743,13 @@ fn convertBufferAbi3(comptime T: type, comptime ElementType: type, obj: *PyObjec
     };
     defer py.Py_DecRef(shape_obj);
 
-    const ndim: usize = @intCast(py.PyTuple_Size(shape_obj));
+    const tuple_size = py.PyTuple_Size(shape_obj);
+    // Validate ndim is non-negative (shouldn't happen with real memoryview, but defensive)
+    if (tuple_size < 0) {
+        py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative ndim");
+        return error.ValueError;
+    }
+    const ndim: usize = @intCast(tuple_size);
     var result: T = undefined;
 
     // Store shape values
@@ -732,6 +759,11 @@ fn convertBufferAbi3(comptime T: type, comptime ElementType: type, obj: *PyObjec
             return error.TypeError;
         };
         const dim_val: py.Py_ssize_t = @intCast(py.PyLong_AsLongLong(dim_obj));
+        // Validate shape dimension is non-negative before casting
+        if (dim_val < 0) {
+            py.PyErr_SetString(py.PyExc_ValueError(), "Buffer has negative shape dimension");
+            return error.ValueError;
+        }
         result._shape_storage[i] = dim_val;
         num_elements *= @intCast(dim_val);
     }
