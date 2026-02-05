@@ -561,8 +561,9 @@ pub fn module(comptime config: anytype) type {
             inline for (classes) |cls| {
                 const Wrapper = class_mod.getWrapper(cls.zig_type);
 
-                // Initialize type (ABI3: PyType_FromSpec, non-ABI3: PyType_Ready)
-                const type_obj = Wrapper.initType() orelse {
+                // Initialize type with custom name (ABI3: PyType_FromSpec, non-ABI3: PyType_Ready)
+                // Use initTypeWithName to ensure the Python-visible name matches cls.name
+                const type_obj = Wrapper.initTypeWithName(cls.name) orelse {
                     py.Py_DecRef(mod);
                     return null;
                 };

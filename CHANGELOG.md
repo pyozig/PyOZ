@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Property getter exception handling** - When a field's type cannot be converted to Python, accessing the property now correctly raises a `TypeError` instead of returning `NULL` without setting an exception (which caused undefined behavior)
+- **Custom class names now work correctly** - When registering a class with `pyoz.class("CustomName", T)`, the Python-visible class name (`__name__`) now correctly uses the custom name instead of the Zig type name. This affects both ABI3 and non-ABI3 modes.
 
 ## [0.6.0] - 2025-11-30
 

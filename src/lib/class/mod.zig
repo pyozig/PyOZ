@@ -599,9 +599,19 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
         /// Initialize type - call PyType_Ready (non-ABI3) or PyType_FromSpec (ABI3)
         /// Returns the type object pointer on success, null on failure
         pub fn initType() ?*py.PyTypeObject {
+            return initTypeWithName(name);
+        }
+
+        /// Initialize type with a custom name override
+        /// This is used when registering classes with pyoz.class("CustomName", T)
+        /// to ensure the Python-visible name matches the registered name
+        pub fn initTypeWithName(custom_name: [*:0]const u8) ?*py.PyTypeObject {
             if (comptime abi.abi3_enabled) {
                 // ABI3 mode: use PyType_FromSpec to create heap type
-                const type_obj = py.c.PyType_FromSpec(&type_spec);
+                // Create a spec with the custom name
+                var spec_with_name = type_spec;
+                spec_with_name.name = custom_name;
+                const type_obj = py.c.PyType_FromSpec(&spec_with_name);
                 if (type_obj == null) {
                     return null;
                 }
@@ -609,6 +619,8 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
                 return heap_type;
             } else {
                 // Non-ABI3 mode: use static type object with PyType_Ready
+                // Override the tp_name with the custom name
+                type_object.tp_name = custom_name;
                 initBase();
                 if (py.c.PyType_Ready(&type_object) < 0) {
                     return null;
