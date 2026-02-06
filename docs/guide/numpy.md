@@ -75,7 +75,7 @@ Return `?bool` to raise exceptions:
 ```zig
 fn element_multiply(a: pyoz.BufferViewMut(f64), b: pyoz.BufferView(f64)) ?bool {
     if (a.len() != b.len()) {
-        pyoz.raiseValueError("Arrays must have same length");
+        _ = pyoz.raiseValueError("Arrays must have same length");
         return null;
     }
     for (a.data, b.data) |*x, y| x.* *= y;

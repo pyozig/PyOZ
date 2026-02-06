@@ -126,12 +126,15 @@ pyoz.exception("MyError", .ValueError)
 ### Raising Exceptions
 
 ```zig
-pyoz.raiseValueError("message");
-pyoz.raiseTypeError("message");
-pyoz.raiseRuntimeError("message");
-pyoz.raiseKeyError("message");
-pyoz.raiseIndexError("message");
+// One-liner (in functions returning ?T):
+if (bad) return pyoz.raiseValueError("message");
+
+// Two-line (discard return, then return null):
+_ = pyoz.raiseValueError("message");
+return null;
 ```
+
+All raise functions: `raiseValueError`, `raiseTypeError`, `raiseRuntimeError`, `raiseKeyError`, `raiseIndexError`, `raiseAttributeError`, `raiseMemoryError`, `raiseOSError`, and [many more](../guide/errors.md).
 
 ### Catching Exceptions
 
