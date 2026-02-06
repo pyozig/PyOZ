@@ -1,0 +1,15 @@
+.{
+    .name = .pyoz,
+    .version = "0.10.0",
+    .fingerprint = 0x43eec3150282fd1f,
+    .dependencies = .{
+        .PyOZ = .{
+            .path = "..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

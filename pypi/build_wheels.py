@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
-"""Build platform-specific wheels for the PyOZ CLI.
+"""Build platform-specific wheels for the PyOZ native Python extension.
 
 Usage:
-    # Build wheels for all platforms (requires zig build release to have run first)
-    python build_wheels.py
-
-    # Build wheel for current platform only
+    # Build wheel for current platform (requires: cd pypi && zig build)
     python build_wheels.py --current-only
 
-The script expects pre-built binaries in ../zig-out/release/ (from zig build release)
-or ../zig-out/bin/pyoz for current-platform-only builds.
+    # Build wheels for all platforms (cross-compile)
+    python build_wheels.py
+
+The extension is built with 'zig build' in the pypi/ directory, producing
+a _pyoz.so/.pyd native module that exposes the CLI as a Python library.
 """
 
 import argparse
 import hashlib
 import os
+import platform as plat
 import re
+import subprocess
 import sys
 import zipfile
 
-# Map from zig target naming to wheel platform tags
-PLATFORM_MAP = {
-    "pyoz-x86_64-linux": "manylinux2014_x86_64",
-    "pyoz-aarch64-linux": "manylinux2014_aarch64",
-    "pyoz-x86_64-macos": "macosx_11_0_x86_64",
-    "pyoz-aarch64-macos": "macosx_11_0_arm64",
-    "pyoz-x86_64-windows.exe": "win_amd64",
-    "pyoz-aarch64-windows.exe": "win_arm64",
-}
+# Map from (os, arch) to (zig target, wheel platform tag, extension)
+TARGETS = [
+    ("x86_64-linux-gnu", "manylinux2014_x86_64", ".so"),
+    ("aarch64-linux-gnu", "manylinux2014_aarch64", ".so"),
+    ("x86_64-macos", "macosx_11_0_x86_64", ".so"),
+    ("aarch64-macos", "macosx_11_0_arm64", ".so"),
+    ("x86_64-windows", "win_amd64", ".pyd"),
+    ("aarch64-windows", "win_arm64", ".pyd"),
+]
 
 
 def get_version():
@@ -56,36 +58,63 @@ def read_readme():
         return f.read()
 
 
-def build_wheel(binary_path, binary_name, platform_tag, version, dist_dir):
-    """Build a single platform-specific wheel."""
-    wheel_name = f"pyoz-{version}-py3-none-{platform_tag}.whl"
+def zig_build(target=None, release=True):
+    """Run zig build in the pypi/ directory, optionally cross-compiling."""
+    pypi_dir = os.path.dirname(os.path.abspath(__file__))
+    cmd = ["zig", "build"]
+    if release:
+        cmd.append("-Doptimize=ReleaseFast")
+    if target:
+        cmd.extend([f"-Dtarget={target}"])
+    print(f"  Building: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=pypi_dir)
+    if result.returncode != 0:
+        print(f"  Error: zig build failed for target {target or 'native'}")
+        return False
+    return True
+
+
+def find_extension(ext=".so"):
+    """Find the built _pyoz extension in zig-out/lib/."""
+    pypi_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(pypi_dir, "zig-out", "lib", f"_pyoz{ext}")
+    if os.path.isfile(path):
+        return path
+    return None
+
+
+def build_wheel(extension_path, ext, platform_tag, version, dist_dir):
+    """Build a single platform-specific wheel containing the native extension.
+
+    Uses abi3 (Python Stable ABI) tags: cp38-abi3-{platform}
+    This means a single wheel works for Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13+
+    """
+    wheel_name = f"pyoz-{version}-cp38-abi3-{platform_tag}.whl"
     wheel_path = os.path.join(dist_dir, wheel_name)
 
     dist_info = f"pyoz-{version}.dist-info"
     readme_content = read_readme()
+    pypi_dir = os.path.dirname(os.path.abspath(__file__))
 
     with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED) as whl:
-        # Add __init__.py
-        init_path = os.path.join(os.path.dirname(__file__), "pyoz", "__init__.py")
+        # Add pyoz/__init__.py
+        init_path = os.path.join(pypi_dir, "pyoz", "__init__.py")
         with open(init_path, "rb") as f:
-            init_data = f.read()
-        whl.writestr("pyoz/__init__.py", init_data)
+            whl.writestr("pyoz/__init__.py", f.read())
 
-        # Add __main__.py
-        main_path = os.path.join(os.path.dirname(__file__), "pyoz", "__main__.py")
+        # Add pyoz/__main__.py
+        main_path = os.path.join(pypi_dir, "pyoz", "__main__.py")
         with open(main_path, "rb") as f:
-            main_data = f.read()
-        whl.writestr("pyoz/__main__.py", main_data)
+            whl.writestr("pyoz/__main__.py", f.read())
 
-        # Add the binary
-        with open(binary_path, "rb") as f:
-            binary_data = f.read()
-        bin_target = f"pyoz/bin/{binary_name}"
-        info = zipfile.ZipInfo(bin_target)
-        # Set executable permission
+        # Add the native extension module
+        with open(extension_path, "rb") as f:
+            ext_data = f.read()
+        ext_target = f"_pyoz{ext}"
+        info = zipfile.ZipInfo(ext_target)
         info.external_attr = 0o755 << 16
         info.compress_type = zipfile.ZIP_DEFLATED
-        whl.writestr(info, binary_data)
+        whl.writestr(info, ext_data)
 
         # METADATA
         metadata = f"""Metadata-Version: 2.1
@@ -113,7 +142,7 @@ Description-Content-Type: text/markdown
         wheel_meta = f"""Wheel-Version: 1.0
 Generator: pyoz-build
 Root-Is-Purelib: false
-Tag: py3-none-{platform_tag}
+Tag: cp38-abi3-{platform_tag}
 """
         whl.writestr(f"{dist_info}/WHEEL", wheel_meta)
 
@@ -124,7 +153,7 @@ pyoz = pyoz:main
         whl.writestr(f"{dist_info}/entry_points.txt", entry_points)
 
         # top_level.txt
-        whl.writestr(f"{dist_info}/top_level.txt", "pyoz\n")
+        whl.writestr(f"{dist_info}/top_level.txt", "pyoz\n_pyoz\n")
 
         # RECORD (must be last, lists all files with hashes)
         record_lines = []
@@ -140,12 +169,43 @@ pyoz = pyoz:main
     return wheel_path
 
 
+def get_current_platform_info():
+    """Get zig target, platform tag, and extension for the current platform."""
+    system = plat.system().lower()
+    machine = plat.machine().lower()
+
+    if machine in ("x86_64", "amd64"):
+        machine = "x86_64"
+    elif machine in ("aarch64", "arm64"):
+        machine = "aarch64"
+
+    if system == "windows":
+        return (
+            f"{machine}-windows",
+            f"win_{'amd64' if machine == 'x86_64' else 'arm64'}",
+            ".pyd",
+        )
+    elif system == "darwin":
+        return (
+            f"{machine}-macos",
+            f"macosx_11_0_{'x86_64' if machine == 'x86_64' else 'arm64'}",
+            ".so",
+        )
+    else:
+        return f"{machine}-linux-gnu", f"manylinux2014_{machine}", ".so"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build PyOZ wheels")
     parser.add_argument(
         "--current-only",
         action="store_true",
         help="Build wheel for current platform only",
+    )
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Skip zig build, use existing extension in zig-out/lib/",
     )
     parser.add_argument(
         "--dist-dir",
@@ -155,10 +215,7 @@ def main():
     args = parser.parse_args()
 
     version = get_version()
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    release_dir = os.path.join(repo_root, "zig-out", "release")
     dist_dir = args.dist_dir
-
     os.makedirs(dist_dir, exist_ok=True)
 
     print(f"Building PyOZ v{version} wheels")
@@ -168,53 +225,33 @@ def main():
     wheels_built = 0
 
     if args.current_only:
-        # Use the binary from zig-out/bin/
-        import platform as plat
+        zig_target, platform_tag, ext = get_current_platform_info()
 
-        system = plat.system().lower()
-        machine = plat.machine().lower()
+        if not args.no_build:
+            if not zig_build(release=True):
+                sys.exit(1)
 
-        if machine in ("x86_64", "amd64"):
-            machine = "x86_64"
-        elif machine in ("aarch64", "arm64"):
-            machine = "aarch64"
-
-        if system == "windows":
-            binary_name = f"pyoz-{machine}-windows.exe"
-            bin_path = os.path.join(repo_root, "zig-out", "bin", "pyoz.exe")
-        elif system == "darwin":
-            binary_name = f"pyoz-{machine}-macos"
-            bin_path = os.path.join(repo_root, "zig-out", "bin", "pyoz")
-        else:
-            binary_name = f"pyoz-{machine}-linux"
-            bin_path = os.path.join(repo_root, "zig-out", "bin", "pyoz")
-
-        if not os.path.isfile(bin_path):
-            print(f"Error: Binary not found at {bin_path}")
-            print("Run 'zig build cli' first.")
+        extension_path = find_extension(ext)
+        if not extension_path:
+            print(f"Error: Extension not found at zig-out/lib/_pyoz{ext}")
+            print("Run 'cd pypi && zig build -Doptimize=ReleaseFast' first.")
             sys.exit(1)
 
-        platform_tag = PLATFORM_MAP.get(binary_name)
-        if not platform_tag:
-            # Fallback for musl linux
-            platform_tag = f"linux_{machine}"
-
-        build_wheel(bin_path, binary_name, platform_tag, version, dist_dir)
+        build_wheel(extension_path, ext, platform_tag, version, dist_dir)
         wheels_built += 1
     else:
-        # Build wheels for all platforms from zig-out/release/
-        if not os.path.isdir(release_dir):
-            print(f"Error: Release directory not found at {release_dir}")
-            print("Run 'zig build release' first.")
-            sys.exit(1)
+        for zig_target, platform_tag, ext in TARGETS:
+            if not args.no_build:
+                if not zig_build(target=zig_target, release=True):
+                    print(f"  Skipping {zig_target} (build failed)")
+                    continue
 
-        for binary_name, platform_tag in PLATFORM_MAP.items():
-            binary_path = os.path.join(release_dir, binary_name)
-            if not os.path.isfile(binary_path):
-                print(f"  Skipping {binary_name} (not found)")
+            extension_path = find_extension(ext)
+            if not extension_path:
+                print(f"  Skipping {zig_target} (extension not found)")
                 continue
 
-            build_wheel(binary_path, binary_name, platform_tag, version, dist_dir)
+            build_wheel(extension_path, ext, platform_tag, version, dist_dir)
             wheels_built += 1
 
     print()

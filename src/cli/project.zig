@@ -71,6 +71,8 @@ pub fn create(allocator: std.mem.Allocator, name_opt: ?[]const u8, in_current_di
         try writeTemplate(allocator, project_dir, "build.zig.zon", build_zig_zon_template, name);
         // Patch fingerprint by running zig build and parsing the suggestion
         patchFingerprint(allocator, project_dir);
+        // Patch dependency hash by running zig build again
+        patchDependencyHash(allocator, project_dir);
     }
 
     // Create .gitignore
@@ -260,6 +262,50 @@ fn patchFingerprint(allocator: std.mem.Allocator, dir: std.fs.Dir) void {
                 patched.appendSlice(allocator, fingerprint_hex) catch return;
                 patched.appendSlice(allocator, ",") catch return;
                 patched.appendSlice(allocator, existing[insert_pos..]) catch return;
+
+                dir.writeFile(.{ .sub_path = "build.zig.zon", .data = patched.items }) catch return;
+            }
+        }
+    }
+}
+
+/// Run `zig build` after fingerprint patching to get the dependency hash,
+/// then patch build.zig.zon to include it.
+fn patchDependencyHash(allocator: std.mem.Allocator, dir: std.fs.Dir) void {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const cwd_path = dir.realpath(".", &path_buf) catch return;
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "zig", "build" },
+        .cwd = cwd_path,
+    }) catch return;
+
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    // Parse the suggested hash from stderr
+    // Format: note: expected .hash = "PyOZ-0.9.0-ntlpPi2DFAB55b7ZfKf0w2qphTjsEAvq03tnCBVDhEdM",
+    const marker = "expected .hash = \"";
+    if (std.mem.indexOf(u8, result.stderr, marker)) |idx| {
+        const start = idx + marker.len;
+        if (std.mem.indexOfScalarPos(u8, result.stderr, start, '"')) |end| {
+            const hash_value = result.stderr[start..end];
+
+            const existing = dir.readFileAlloc(allocator, "build.zig.zon", 8192) catch return;
+            defer allocator.free(existing);
+
+            // Replace "// .hash = "..."," with actual ".hash = "VALUE","
+            const comment = "// .hash = \"...\",";
+            if (std.mem.indexOf(u8, existing, comment)) |comment_idx| {
+                var patched = std.ArrayListUnmanaged(u8){};
+                defer patched.deinit(allocator);
+
+                patched.appendSlice(allocator, existing[0..comment_idx]) catch return;
+                patched.appendSlice(allocator, ".hash = \"") catch return;
+                patched.appendSlice(allocator, hash_value) catch return;
+                patched.appendSlice(allocator, "\",") catch return;
+                patched.appendSlice(allocator, existing[comment_idx + comment.len ..]) catch return;
 
                 dir.writeFile(.{ .sub_path = "build.zig.zon", .data = patched.items }) catch return;
             }

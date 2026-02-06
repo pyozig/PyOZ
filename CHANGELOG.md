@@ -5,6 +5,15 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-02-06
+
+### Added
+- **Native PyPI package** - The `pyoz` pip package is now a native Python extension module built with PyOZ itself (dogfooding). Instead of embedding a CLI binary and forwarding via subprocess, the package exposes `init()`, `build()`, `develop()`, `publish()`, and `version()` as directly callable Python functions. This enables programmatic usage in custom `setup.py` scripts, CI pipelines, and build automation.
+- **ABI3 (Stable ABI) wheels** - The `pyoz` pip package now builds with Python's Stable ABI (`abi3`), targeting Python 3.8+. A single `cp38-abi3-{platform}` wheel works across all Python versions (3.8, 3.9, 3.10, ..., 3.13+), reducing the number of wheels from one-per-Python-version-per-platform to one-per-platform. Cross-compilation from a single CI runner (ubuntu) is supported since abi3 headers are platform-agnostic.
+
+### Fixed
+- **`pyoz init` now patches dependency hash** - When creating a project with a remote PyOZ URL dependency, `pyoz init` now automatically patches the `.hash` field in `build.zig.zon` by running `zig build` a second time after fingerprint patching. Previously, users had to manually fix the missing hash error on first build.
+
 ## [0.9.0] - 2026-02-06
 
 ### Added

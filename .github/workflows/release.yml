@@ -152,18 +152,27 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
-            - name: Download artifacts
-              uses: actions/download-artifact@v4
+            - name: Setup Zig
+              uses: goto-bus-stop/setup-zig@v2
               with:
-                  name: release-binaries
-                  path: zig-out/release/
+                  version: 0.15.2
 
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
                   python-version: "3.12"
 
-            - name: Build wheels
+            - name: Cache Zig
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/zig
+                      pypi/zig-cache
+                  key: zig-pypi-cache-${{ runner.os }}-${{ hashFiles('pypi/build.zig', 'pypi/build.zig.zon') }}
+                  restore-keys: |
+                      zig-pypi-cache-${{ runner.os }}-
+
+            - name: Build abi3 wheels for all platforms
               run: python pypi/build_wheels.py --dist-dir pypi/dist
 
             - name: Publish to PyPI
