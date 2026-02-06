@@ -5,6 +5,13 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-06
+
+### Added
+- **PyPI distribution** - PyOZ CLI is now available via `pip install pyoz`. The package bundles pre-built statically-linked binaries for all major platforms (Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64/arm64). No runtime dependencies required.
+- **Automated wheel building** - Added `pypi/build_wheels.py` script that creates platform-tagged wheels from cross-compiled Zig binaries. Supports building for all 6 target platforms from a single machine.
+- **CI/CD PyPI publishing** - Release workflow now automatically builds and publishes wheels to PyPI when a version tag is pushed.
+
 ## [0.7.1] - 2026-02-06
 
 ### Fixed

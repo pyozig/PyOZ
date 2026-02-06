@@ -142,3 +142,33 @@ jobs:
                     --notes-file release_notes.md \
                     $PRERELEASE_FLAG \
                     release/*
+
+    pypi:
+        name: Publish to PyPI
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Download artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: release-binaries
+                  path: zig-out/release/
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Build wheels
+              run: python pypi/build_wheels.py --dist-dir pypi/dist
+
+            - name: Publish to PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  password: ${{ secrets.PYPI_API_TOKEN }}
+                  packages-dir: pypi/dist/
+                  skip-existing: true

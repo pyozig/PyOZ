@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyoz"
+version = "0.8.0"
+description = "Python extension modules in Zig, made easy"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "Daniele Linguaglossa" },
+]
+keywords = ["zig", "python", "extension", "native", "binding"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/pyozig/PyOZ"
+Documentation = "https://github.com/pyozig/PyOZ/tree/main/docs"
+Repository = "https://github.com/pyozig/PyOZ"
+Issues = "https://github.com/pyozig/PyOZ/issues"
+
+[project.scripts]
+pyoz = "pyoz:main"
+
+[tool.setuptools.packages.find]
+include = ["pyoz*"]
+
+[tool.setuptools.package-data]
+pyoz = ["bin/*"]
