@@ -1,6 +1,6 @@
 [project]
 name = "pyoz"
-version = "0.10.0"
+version = "0.10.1"
 description = "Python extension modules in Zig, made easy"
 readme = "README.md"
 license = "MIT"

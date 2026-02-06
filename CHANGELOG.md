@@ -5,6 +5,11 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-02-06
+
+### Fixed
+- **libpython linking broke abi3 portability** - The 0.10.0 wheels linked against `libpython3.12.so` (the CI's Python version), causing `ImportError` on any other Python version. On Linux/macOS, the extension no longer links against libpython at all (symbols come from the interpreter at runtime). On Windows, it links against `python3.dll` (the version-agnostic stable ABI DLL) instead of `python3XX.dll`.
+
 ## [0.10.0] - 2026-02-06
 
 ### Added
