@@ -2743,6 +2743,51 @@ const FlexPoint = struct {
     }
 };
 
+// ============================================================================
+// Line - demonstrates cross-class references (methods that accept/return Point)
+// ============================================================================
+
+/// A line segment defined by two endpoints.
+/// Demonstrates cross-class methods: methods on Line that accept/return Point instances.
+const Line = struct {
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+
+    /// Get the start point as a Point instance (cross-class return)
+    pub fn start_point(self: *const Line) Point {
+        return .{ .x = self.x1, .y = self.y1 };
+    }
+
+    /// Get the end point as a Point instance (cross-class return)
+    pub fn end_point(self: *const Line) Point {
+        return .{ .x = self.x2, .y = self.y2 };
+    }
+
+    /// Get the midpoint as a Point instance (cross-class return)
+    pub fn midpoint(self: *const Line) Point {
+        return .{ .x = (self.x1 + self.x2) / 2.0, .y = (self.y1 + self.y2) / 2.0 };
+    }
+
+    /// Create a Line from two Point instances (cross-class accept)
+    pub fn from_points(p1: *const Point, p2: *const Point) Line {
+        return .{ .x1 = p1.x, .y1 = p1.y, .x2 = p2.x, .y2 = p2.y };
+    }
+
+    /// Calculate the length of the line segment
+    pub fn length(self: *const Line) f64 {
+        const dx = self.x2 - self.x1;
+        const dy = self.y2 - self.y1;
+        return @sqrt(dx * dx + dy * dy);
+    }
+
+    pub fn __repr__(self: *const Line) []const u8 {
+        _ = self;
+        return "Line(...)";
+    }
+};
+
 // Module Definition
 // ============================================================================
 
@@ -2907,6 +2952,7 @@ const Example = pyoz.module(.{
         pyoz.class("SimplePoint", SimplePoint),
         pyoz.class("Resource", Resource),
         pyoz.class("FlexPoint", FlexPoint),
+        pyoz.class("Line", Line),
     },
     .exceptions = &.{
         pyoz.exception("ValidationError", .{ .doc = "Raised when validation fails", .base = .ValueError }),

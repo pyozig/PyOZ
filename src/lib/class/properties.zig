@@ -10,9 +10,8 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
+const class_mod = @import("mod.zig");
+const ClassInfo = class_mod.ClassInfo;
 
 /// Check if a field name indicates a private field (starts with underscore)
 /// Private fields are not exposed to Python as properties or __init__ arguments
@@ -34,7 +33,7 @@ fn isPyozPropertyDecl(comptime T: type, comptime decl_name: []const u8) bool {
 }
 
 /// Build properties for a given type
-pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
+pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
     const struct_info = @typeInfo(T).@"struct";
     const fields = struct_info.fields;
 
@@ -203,7 +202,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                         const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                         const custom_getter = @field(T, "get_" ++ field_name);
                         const result = custom_getter(self.getDataConst());
-                        const py_result = getConversions().toPy(@TypeOf(result), result);
+                        const py_result = conversion.Converter(class_infos).toPy(@TypeOf(result), result);
                         // Ensure an exception is set if conversion failed
                         if (py_result == null and py.PyErr_Occurred() == null) {
                             py.PyErr_SetString(py.PyExc_TypeError(), "Cannot convert field '" ++ field_name ++ "' to Python object");
@@ -217,7 +216,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                     _ = closure;
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const value = @field(self.getDataConst().*, field_name);
-                    const py_result = getConversions().toPy(FieldType, value);
+                    const py_result = conversion.Converter(class_infos).toPy(FieldType, value);
                     // Ensure an exception is set if conversion failed
                     if (py_result == null and py.PyErr_Occurred() == null) {
                         py.PyErr_SetString(py.PyExc_TypeError(), "Cannot convert field '" ++ field_name ++ "' to Python object");
@@ -241,7 +240,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                         const SetterType = @TypeOf(custom_setter);
                         const setter_info = @typeInfo(SetterType).@"fn";
                         const ValueType = setter_info.params[1].type.?;
-                        const converted = getConversions().fromPy(ValueType, py_value) catch {
+                        const converted = conversion.Converter(class_infos).fromPy(ValueType, py_value) catch {
                             py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for: " ++ field_name);
                             return -1;
                         };
@@ -267,7 +266,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                         py.PyErr_SetString(py.PyExc_AttributeError(), "Cannot delete attribute");
                         return -1;
                     };
-                    @field(self.getData().*, field_name) = getConversions().fromPy(FieldType, py_value) catch {
+                    @field(self.getData().*, field_name) = conversion.Converter(class_infos).fromPy(FieldType, py_value) catch {
                         py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for: " ++ field_name);
                         return -1;
                     };
@@ -284,7 +283,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const getter = @field(T, getter_name);
                     const result = getter(self.getDataConst());
-                    return getConversions().toPy(@TypeOf(result), result);
+                    return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
                 }
             }.get;
         }
@@ -306,7 +305,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                     const SetterType = @TypeOf(setter);
                     const setter_info = @typeInfo(SetterType).@"fn";
                     const ValueType = setter_info.params[1].type.?;
-                    const converted = getConversions().fromPy(ValueType, py_value) catch {
+                    const converted = conversion.Converter(class_infos).fromPy(ValueType, py_value) catch {
                         py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for property: " ++ prop_name);
                         return -1;
                     };
@@ -343,7 +342,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                     const config = ConfigType{};
                     const getter = config.get;
                     const result = getter(self.getDataConst());
-                    return getConversions().toPy(@TypeOf(result), result);
+                    return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
                 }
             }.get;
         }
@@ -370,7 +369,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type) type {
                     const SetterType = @TypeOf(setter);
                     const setter_info = @typeInfo(SetterType).@"fn";
                     const ValueType = setter_info.params[1].type.?;
-                    const converted = getConversions().fromPy(ValueType, py_value) catch {
+                    const converted = conversion.Converter(class_infos).fromPy(ValueType, py_value) catch {
                         py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for property: " ++ prop_name);
                         return -1;
                     };

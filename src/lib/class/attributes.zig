@@ -6,12 +6,11 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
+const class_mod = @import("mod.zig");
+const ClassInfo = class_mod.ClassInfo;
 
 /// Build attribute access protocol for a given type
-pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
+pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
     return struct {
         /// Check if this class is frozen
         pub fn isFrozen() bool {
@@ -38,7 +37,7 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
             py.PyErr_Clear();
 
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const attr_name = getConversions().fromPy([]const u8, name_obj.?) catch {
+            const attr_name = conversion.Converter(class_infos).fromPy([]const u8, name_obj.?) catch {
                 py.PyErr_SetString(py.PyExc_TypeError(), "attribute name must be a string");
                 return null;
             };
@@ -52,24 +51,24 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
                     py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
                     return null;
                 };
-                return getConversions().toPy(@TypeOf(attr_result), attr_result);
+                return conversion.Converter(class_infos).toPy(@TypeOf(attr_result), attr_result);
             } else if (@typeInfo(RetType) == .optional) {
                 if (T.__getattr__(self.getDataConst(), attr_name)) |attr_result| {
-                    return getConversions().toPy(@TypeOf(attr_result), attr_result);
+                    return conversion.Converter(class_infos).toPy(@TypeOf(attr_result), attr_result);
                 } else {
                     py.PyErr_SetString(py.PyExc_AttributeError(), "attribute not found");
                     return null;
                 }
             } else {
                 const attr_result = T.__getattr__(self.getDataConst(), attr_name);
-                return getConversions().toPy(RetType, attr_result);
+                return conversion.Converter(class_infos).toPy(RetType, attr_result);
             }
         }
 
         /// tp_setattro: Called for attribute assignment and deletion
         pub fn py_setattro(self_obj: ?*py.PyObject, name_obj: ?*py.PyObject, value_obj: ?*py.PyObject) callconv(.c) c_int {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            const attr_name = getConversions().fromPy([]const u8, name_obj.?) catch {
+            const attr_name = conversion.Converter(class_infos).fromPy([]const u8, name_obj.?) catch {
                 py.PyErr_SetString(py.PyExc_TypeError(), "attribute name must be a string");
                 return -1;
             };
@@ -96,7 +95,7 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
                             return 0;
                         } else {
                             // Convert Python object to Zig type
-                            const zig_value = getConversions().fromPy(ValueType, value) catch {
+                            const zig_value = conversion.Converter(class_infos).fromPy(ValueType, value) catch {
                                 py.PyErr_SetString(py.PyExc_TypeError(), "cannot convert value to expected type");
                                 return -1;
                             };

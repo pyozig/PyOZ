@@ -5,6 +5,11 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-06
+
+### Fixed
+- **Cross-class references now work between module classes** - When a module defines multiple classes (e.g., `Point` and `Line`), methods on one class can now accept or return instances of another class in the same module. Previously, class method wrappers only knew about their own class (or no classes at all), so cross-class conversions would fail with `TypeError` or `SystemError`. The fix threads the full `class_infos` list through the entire class generation pipeline — from `generateClass()` through every protocol builder (methods, lifecycle, properties, number, sequence, mapping, descriptor, repr, attributes, iterator, callable) — so every converter sees all sibling classes. Cyclic references (A references B and B references A) work correctly thanks to Zig's comptime memoization.
+
 ## [0.7.0] - 2026-02-06
 
 ### Added

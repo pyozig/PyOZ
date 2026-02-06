@@ -11,13 +11,9 @@ const abi = @import("../abi.zig");
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
-fn getSelfAwareConverter(comptime name: [*:0]const u8, comptime T: type) type {
-    return conversion.Converter(&[_]ClassInfo{.{ .name = name, .zig_type = T }});
-}
-
 /// Build mapping protocol for a given type
-pub fn MappingProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
-    const Conv = getSelfAwareConverter(name, T);
+pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
+    const Conv = conversion.Converter(class_infos);
 
     return struct {
         pub fn hasMappingMethods() bool {

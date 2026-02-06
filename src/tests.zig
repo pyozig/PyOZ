@@ -2576,6 +2576,93 @@ test "TypedAttribute __delete__ - different bounds" {
 }
 
 // ============================================================================
+// CROSS-CLASS REFERENCES (Line ↔ Point)
+// ============================================================================
+
+test "Line - creation and length" {
+    const python = try initTestPython();
+
+    try python.exec("l = example.Line(0.0, 0.0, 3.0, 4.0)");
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "l.length()"), 0.0001);
+}
+
+test "Line - start_point returns Point (cross-class return)" {
+    const python = try initTestPython();
+
+    try python.exec("l = example.Line(1.0, 2.0, 3.0, 4.0)");
+    try python.exec("p = l.start_point()");
+    try std.testing.expect(try python.eval(bool, "isinstance(p, example.Point)"));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "p.x"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "p.y"), 0.0001);
+}
+
+test "Line - end_point returns Point (cross-class return)" {
+    const python = try initTestPython();
+
+    try python.exec("l = example.Line(1.0, 2.0, 3.0, 4.0)");
+    try python.exec("p = l.end_point()");
+    try std.testing.expect(try python.eval(bool, "isinstance(p, example.Point)"));
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "p.x"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), try python.eval(f64, "p.y"), 0.0001);
+}
+
+test "Line - midpoint returns Point (cross-class return)" {
+    const python = try initTestPython();
+
+    try python.exec("l = example.Line(0.0, 0.0, 10.0, 10.0)");
+    try python.exec("p = l.midpoint()");
+    try std.testing.expect(try python.eval(bool, "isinstance(p, example.Point)"));
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "p.x"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "p.y"), 0.0001);
+}
+
+test "Line - from_points accepts Points (cross-class accept)" {
+    const python = try initTestPython();
+
+    try python.exec("p1 = example.Point(1.0, 2.0)");
+    try python.exec("p2 = example.Point(4.0, 6.0)");
+    try python.exec("l = example.Line.from_points(p1, p2)");
+    try std.testing.expect(try python.eval(bool, "isinstance(l, example.Line)"));
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "l.length()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "l.x1"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "l.y1"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), try python.eval(f64, "l.x2"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), try python.eval(f64, "l.y2"), 0.0001);
+}
+
+test "Line - roundtrip Point → Line → Point (cross-class chaining)" {
+    const python = try initTestPython();
+
+    // Create points, make a line from them, then extract points back
+    try python.exec("p1 = example.Point(3.0, 4.0)");
+    try python.exec("p2 = example.Point(6.0, 8.0)");
+    try python.exec("l = example.Line.from_points(p1, p2)");
+    try python.exec("start = l.start_point()");
+    try python.exec("end = l.end_point()");
+
+    // The extracted points should equal the original ones
+    try std.testing.expect(try python.eval(bool, "start == p1"));
+    try std.testing.expect(try python.eval(bool, "end == p2"));
+
+    // The extracted points should be usable as Point objects
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "start.magnitude()"), 0.0001);
+}
+
+test "Line - cross-class return usable with Point methods" {
+    const python = try initTestPython();
+
+    // Get a Point from a Line method and use Point methods on it
+    try python.exec("l = example.Line(0.0, 0.0, 3.0, 4.0)");
+    try python.exec("p = l.end_point()");
+
+    // Use Point methods on the cross-class returned object
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "p.magnitude()"), 0.0001);
+    try python.exec("p.scale(2.0)");
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), try python.eval(f64, "p.x"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), try python.eval(f64, "p.y"), 0.0001);
+}
+
+// ============================================================================
 // NUMPY / BUFFERVIEW TESTS
 // ============================================================================
 

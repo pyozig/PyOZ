@@ -5,20 +5,12 @@
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
-
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
-fn getSelfAwareConverter(comptime name: [*:0]const u8, comptime T: type) type {
-    return conversion.Converter(&[_]ClassInfo{.{ .name = name, .zig_type = T }});
-}
-
 /// Build iterator protocol for a given type
-pub fn IteratorProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
-    const Conv = getSelfAwareConverter(name, T);
+pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
+    const Conv = conversion.Converter(class_infos);
 
     return struct {
         pub fn py_iter(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
@@ -39,7 +31,7 @@ pub fn IteratorProtocol(comptime name: [*:0]const u8, comptime T: type, comptime
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__next__(self.getData());
             if (result) |value| {
-                return getConversions().toPy(@TypeOf(value), value);
+                return Conv.toPy(@TypeOf(value), value);
             } else {
                 return null;
             }
