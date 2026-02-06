@@ -147,7 +147,8 @@ This works with any optional return type (`?i64`, `?f64`, `?[]const u8`, `?*pyoz
 !!! warning "Always use optional return types with raise functions"
     PyOZ-wrapped functions must return `null` (via `?T`) to signal errors to Python. Setting an exception and returning a non-null value causes Python's `SystemError: returned a result with an exception set`.
 
-When returning `null`:
+**When returning `null`:**
+
 - If an exception is set: exception propagates to Python
 - If no exception: returns Python `None`
 
