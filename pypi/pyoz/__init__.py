@@ -1,5 +1,6 @@
 """PyOZ - Python extension modules in Zig, made easy."""
 
+import shutil
 import sys
 
 from _pyoz import (
@@ -9,6 +10,21 @@ from _pyoz import (
     publish,
     version,
 )
+
+
+def _check_zig():
+    """Check that Zig is installed and available in PATH."""
+    if shutil.which("zig") is None:
+        print("Error: Zig compiler not found in PATH.")
+        print()
+        print("PyOZ requires Zig to build extensions. Install it from:")
+        print("  https://ziglang.org/download/")
+        print()
+        print("Or via a package manager:")
+        print("  brew install zig        # macOS")
+        print("  snap install zig        # Linux")
+        print("  scoop install zig       # Windows")
+        sys.exit(1)
 
 
 def _print_usage():
@@ -64,6 +80,7 @@ Options:
             name = arg
         i += 1
 
+    _check_zig()
     init(name, in_current_dir, local_pyoz_path)
 
 
@@ -93,6 +110,7 @@ Options:
         elif arg == "--stubs":
             stubs = True
 
+    _check_zig()
     wheel_path = build(release, stubs)
     print(f"Wheel: {wheel_path}")
 
@@ -108,6 +126,7 @@ Options:
   -h, --help  Show this help message""")
             return
 
+    _check_zig()
     develop()
 
 
