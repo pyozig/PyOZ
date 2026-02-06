@@ -285,7 +285,7 @@ fn patchDependencyHash(allocator: std.mem.Allocator, dir: std.fs.Dir) void {
     defer allocator.free(result.stderr);
 
     // Parse the suggested hash from stderr
-    // Format: note: expected .hash = "PyOZ-0.9.0-ntlpPi2DFAB55b7ZfKf0w2qphTjsEAvq03tnCBVDhEdM",
+    // Format: note: expected .hash = "PyOZ-0.10.0-...",
     const marker = "expected .hash = \"";
     if (std.mem.indexOf(u8, result.stderr, marker)) |idx| {
         const start = idx + marker.len;

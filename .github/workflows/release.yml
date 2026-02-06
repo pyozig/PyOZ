@@ -145,7 +145,6 @@ jobs:
 
     pypi:
         name: Publish to PyPI
-        needs: build
         runs-on: ubuntu-latest
 
         steps:

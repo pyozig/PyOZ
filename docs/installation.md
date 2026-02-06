@@ -89,7 +89,7 @@ Add PyOZ to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .PyOZ = .{
-            .url = "https://github.com/dzonerzy/PyOZ/archive/refs/tags/v0.4.0.tar.gz",
+            .url = "https://github.com/pyozig/PyOZ/archive/refs/tags/v0.10.0.tar.gz",
             .hash = "...", // Get hash from release
         },
     },

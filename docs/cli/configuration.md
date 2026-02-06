@@ -23,7 +23,7 @@ Zig package manifest defining project metadata and dependencies:
     .version = "0.1.0",
     .dependencies = .{
         .PyOZ = .{
-            .url = "https://github.com/dzonerzy/PyOZ/archive/refs/tags/v0.4.0.tar.gz",
+            .url = "https://github.com/pyozig/PyOZ/archive/refs/tags/v0.10.0.tar.gz",
             .hash = "1220abc123...",
         },
     },

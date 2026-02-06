@@ -1751,6 +1751,25 @@ test "fn raise_value_error - raising exceptions" {
     try std.testing.expect(try python.eval(bool, "'test error' in msg"));
 }
 
+test "fn test_raise_runtime - raiseRuntimeError without inline" {
+    const python = try initTestPython();
+
+    // Valid input returns doubled value
+    try std.testing.expectEqual(@as(i64, 10), try python.eval(i64, "example.test_raise_runtime(5)"));
+
+    // Negative input raises RuntimeError
+    try python.exec(
+        \\try:
+        \\    example.test_raise_runtime(-1)
+        \\    raised = False
+        \\except RuntimeError as e:
+        \\    raised = True
+        \\    msg = str(e)
+    );
+    try std.testing.expect(try python.eval(bool, "raised"));
+    try std.testing.expect(try python.eval(bool, "'non-negative' in msg"));
+}
+
 test "fn validate_positive - error mapping" {
     const python = try initTestPython();
 
