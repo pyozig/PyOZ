@@ -2770,8 +2770,13 @@ const Line = struct {
         return .{ .x = (self.x1 + self.x2) / 2.0, .y = (self.y1 + self.y2) / 2.0 };
     }
 
-    /// Create a Line from two Point instances (cross-class accept)
+    /// Create a Line from two Point instances (cross-class accept, by pointer)
     pub fn from_points(p1: *const Point, p2: *const Point) Line {
+        return .{ .x1 = p1.x, .y1 = p1.y, .x2 = p2.x, .y2 = p2.y };
+    }
+
+    /// Create a Line from two Point instances passed by value (cross-class accept, by value)
+    pub fn from_points_val(p1: Point, p2: Point) Line {
         return .{ .x1 = p1.x, .y1 = p1.y, .x2 = p2.x, .y2 = p2.y };
     }
 

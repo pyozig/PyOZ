@@ -2648,6 +2648,20 @@ test "Line - roundtrip Point → Line → Point (cross-class chaining)" {
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "start.magnitude()"), 0.0001);
 }
 
+test "Line - from_points_val accepts Points by value (cross-class by-value)" {
+    const python = try initTestPython();
+
+    try python.exec("p1 = example.Point(1.0, 2.0)");
+    try python.exec("p2 = example.Point(4.0, 6.0)");
+    try python.exec("l = example.Line.from_points_val(p1, p2)");
+    try std.testing.expect(try python.eval(bool, "isinstance(l, example.Line)"));
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "l.length()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "l.x1"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "l.y1"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), try python.eval(f64, "l.x2"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), try python.eval(f64, "l.y2"), 0.0001);
+}
+
 test "Line - cross-class return usable with Point methods" {
     const python = try initTestPython();
 

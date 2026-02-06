@@ -625,6 +625,16 @@ pub fn Converter(comptime class_infos: []const class_mod.ClassInfo) type {
                         }
                     }
                 }
+
+                // Check if T is a registered class type (by value)
+                // This allows methods to accept class parameters by value (e.g., `fn foo(p: Point)`)
+                // in addition to by pointer (`fn foo(p: *const Point)`)
+                inline for (class_infos) |cls_info| {
+                    if (T == cls_info.zig_type) {
+                        const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type, class_infos);
+                        return (Wrapper.unwrapConst(obj) orelse return error.TypeError).*;
+                    }
+                }
             }
 
             return switch (info) {
