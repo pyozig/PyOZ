@@ -10,13 +10,9 @@ const slots = py.slots;
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
-fn getSelfAwareConverter(comptime name: [*:0]const u8, comptime T: type) type {
-    return conversion.Converter(&[_]ClassInfo{.{ .name = name, .zig_type = T }});
-}
-
 /// Build number protocol for a given type
-pub fn NumberProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
-    const Conv = getSelfAwareConverter(name, T);
+pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
+    const Conv = conversion.Converter(class_infos);
 
     return struct {
         pub fn hasNumberMethods() bool {
@@ -536,19 +532,19 @@ pub fn NumberProtocol(comptime name: [*:0]const u8, comptime T: type, comptime P
         fn py_nb_int(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__int__(self.getDataConst());
-            return conversion.Conversions.toPy(@TypeOf(result), result);
+            return Conv.toPy(@TypeOf(result), result);
         }
 
         fn py_nb_float(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__float__(self.getDataConst());
-            return conversion.Conversions.toPy(@TypeOf(result), result);
+            return Conv.toPy(@TypeOf(result), result);
         }
 
         fn py_nb_index(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__index__(self.getDataConst());
-            return conversion.Conversions.toPy(@TypeOf(result), result);
+            return Conv.toPy(@TypeOf(result), result);
         }
 
         // In-place operators

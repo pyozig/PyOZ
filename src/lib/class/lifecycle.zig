@@ -10,9 +10,8 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const abi = @import("../abi.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
+const class_mod = @import("mod.zig");
+const ClassInfo = class_mod.ClassInfo;
 
 /// Check if a field name indicates a private field (starts with underscore)
 /// Private fields are not exposed to Python as properties or __init__ arguments
@@ -29,6 +28,7 @@ pub fn LifecycleBuilder(
     comptime has_dict_support: bool,
     comptime has_weakref_support: bool,
     comptime is_builtin_subclass: bool,
+    comptime class_infos: []const ClassInfo,
 ) type {
     const struct_info = @typeInfo(T).@"struct";
     const fields = struct_info.fields;
@@ -153,7 +153,7 @@ pub fn LifecycleBuilder(
                     py.PyErr_SetString(py.PyExc_TypeError(), "Failed to get argument");
                     return -1;
                 };
-                @field(data.*, field.name) = getConversions().fromPy(field.type, item) catch {
+                @field(data.*, field.name) = conversion.Converter(class_infos).fromPy(field.type, item) catch {
                     py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert argument: " ++ field.name);
                     return -1;
                 };
@@ -175,7 +175,7 @@ pub fn LifecycleBuilder(
                 const ParamType = new_params[i].type.?;
                 if (i < actual_count) {
                     const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
-                    result[i] = try getConversions().fromPy(ParamType, item);
+                    result[i] = try conversion.Converter(class_infos).fromPy(ParamType, item);
                 } else {
                     // Missing arg — must be optional, fill with null
                     if (@typeInfo(ParamType) == .optional) {

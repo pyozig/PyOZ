@@ -5,6 +5,14 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-06
+
+### Fixed
+- **Cross-class references now work between module classes** - When a module defines multiple classes (e.g., `Point` and `Line`), methods on one class can now accept or return instances of another class in the same module. Previously, class method wrappers only knew about their own class (or no classes at all), so cross-class conversions would fail with `TypeError` or `SystemError`. The fix threads the full `class_infos` list through the entire class generation pipeline — from `generateClass()` through every protocol builder (methods, lifecycle, properties, number, sequence, mapping, descriptor, repr, attributes, iterator, callable, comparison) — so every converter sees all sibling classes. Cyclic references (A references B and B references A) work correctly thanks to Zig's comptime memoization.
+- **Comparison operators now support cross-class types** - `__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`, `__ge__` previously hardcoded the `other` parameter to be the same type as `self`. Now the comparison protocol introspects each method's signature and uses the class-aware converter, so `__eq__(self: *const A, other: *const B) bool` works correctly.
+- **`__int__`, `__float__`, `__index__` now use class-aware converter** - These number protocol methods were using the old zero-class `Conversions.toPy()` instead of the class-aware `Conv.toPy()`, which would have failed if they returned a custom class type.
+- **Class parameters now supported by value and by pointer** - Methods can now accept class instances either by pointer (`fn foo(p: *const Point)`) or by value (`fn foo(p: Point)`). Previously only pointer parameters worked for cross-class references; by-value parameters would fail with `TypeError` because the struct branch of `fromPy` didn't check registered class types.
+
 ## [0.7.0] - 2026-02-06
 
 ### Added

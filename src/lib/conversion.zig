@@ -296,7 +296,7 @@ pub fn Converter(comptime class_infos: []const class_mod.ClassInfo) type {
                     // Check if this is a registered class type - create a new Python object
                     inline for (class_infos) |cls_info| {
                         if (T == cls_info.zig_type) {
-                            const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type);
+                            const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type, class_infos);
                             // Allocate a new Python object - use getType() which works in both ABI3 and non-ABI3 modes
                             const py_obj = py.PyObject_New(Wrapper.PyWrapper, Wrapper.getType()) orelse return null;
                             // Copy the data
@@ -328,7 +328,7 @@ pub fn Converter(comptime class_infos: []const class_mod.ClassInfo) type {
                 // Check each registered class type
                 inline for (class_infos) |cls_info| {
                     if (Child == cls_info.zig_type) {
-                        const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type);
+                        const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type, class_infos);
                         if (ptr_info.is_const) {
                             return Wrapper.unwrapConst(obj) orelse return error.TypeError;
                         } else {
@@ -623,6 +623,16 @@ pub fn Converter(comptime class_infos: []const class_mod.ClassInfo) type {
                                 ._shape_storage = if (abi3_enabled) undefined else {},
                             };
                         }
+                    }
+                }
+
+                // Check if T is a registered class type (by value)
+                // This allows methods to accept class parameters by value (e.g., `fn foo(p: Point)`)
+                // in addition to by pointer (`fn foo(p: *const Point)`)
+                inline for (class_infos) |cls_info| {
+                    if (T == cls_info.zig_type) {
+                        const Wrapper = class_mod.getWrapperWithName(cls_info.name, cls_info.zig_type, class_infos);
+                        return (Wrapper.unwrapConst(obj) orelse return error.TypeError).*;
                     }
                 }
             }

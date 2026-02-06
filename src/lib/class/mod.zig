@@ -29,11 +29,6 @@ const properties_mod = @import("properties.zig");
 const methods_mod = @import("methods.zig");
 const gc_protocol = @import("gc.zig");
 
-// Forward declaration - we'll use basic conversions within class methods
-fn getConversions() type {
-    return conversion.Conversions;
-}
-
 /// Check if a field name indicates a private field (starts with underscore)
 fn isPrivateField(comptime field_name: []const u8) bool {
     return field_name.len > 0 and field_name[0] == '_';
@@ -111,13 +106,13 @@ pub const ClassDef = struct {
 /// Get the wrapper type for a Zig struct (for use in conversions)
 pub fn getWrapper(comptime T: type) type {
     // We need a default name - use the type name
-    return generateClass(@typeName(T), T);
+    return generateClass(@typeName(T), T, &[_]ClassInfo{});
 }
 
 /// Get the wrapper type for a Zig struct with a custom name
 /// Used by module registration to thread the user's class name through
-pub fn getWrapperWithName(comptime name: [*:0]const u8, comptime T: type) type {
-    return generateClass(name, T);
+pub fn getWrapperWithName(comptime name: [*:0]const u8, comptime T: type, comptime class_infos: []const ClassInfo) type {
+    return generateClass(name, T, class_infos);
 }
 
 /// Generate a Python class wrapper for a Zig struct
@@ -130,7 +125,7 @@ pub fn class(comptime name: [*:0]const u8, comptime T: type) ClassDef {
 }
 
 /// Generate all the wrapper code for a Zig struct
-fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
+fn generateClass(comptime name: [*:0]const u8, comptime T: type, comptime class_infos: []const ClassInfo) type {
     const struct_info = @typeInfo(T).@"struct";
     const fields = struct_info.fields;
 
@@ -182,19 +177,20 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type) type {
             has_dict_support,
             has_weakref_support,
             is_builtin_subclass,
+            class_infos,
         );
-        const num = number_mod.NumberProtocol(name, T, Self);
-        const seq = sequence_mod.SequenceProtocol(name, T, Self);
-        const map = mapping_mod.MappingProtocol(name, T, Self);
-        const cmp = comparison_mod.ComparisonProtocol(T, Self);
-        const repr = repr_mod.ReprProtocol(name, T, Self);
-        const iter = iterator_mod.IteratorProtocol(name, T, Self);
+        const num = number_mod.NumberProtocol(name, T, Self, class_infos);
+        const seq = sequence_mod.SequenceProtocol(name, T, Self, class_infos);
+        const map = mapping_mod.MappingProtocol(name, T, Self, class_infos);
+        const cmp = comparison_mod.ComparisonProtocol(T, Self, class_infos);
+        const repr = repr_mod.ReprProtocol(name, T, Self, class_infos);
+        const iter = iterator_mod.IteratorProtocol(name, T, Self, class_infos);
         const buf = buffer_mod.BufferProtocol(T, Self);
-        const desc = descriptor_mod.DescriptorProtocol(name, T, Self);
-        const attr = attributes_mod.AttributeProtocol(name, T, Self);
-        const call = callable_mod.CallableProtocol(name, T, Self);
-        const props = properties_mod.PropertiesBuilder(T, Self);
-        const meths = methods_mod.MethodBuilder(name, T, PyWrapper);
+        const desc = descriptor_mod.DescriptorProtocol(name, T, Self, class_infos);
+        const attr = attributes_mod.AttributeProtocol(name, T, Self, class_infos);
+        const call = callable_mod.CallableProtocol(name, T, Self, class_infos);
+        const props = properties_mod.PropertiesBuilder(T, Self, class_infos);
+        const meths = methods_mod.MethodBuilder(name, T, PyWrapper, class_infos);
         const gc = gc_protocol.GCBuilder(T, PyWrapper);
 
         // Helper function to get type object pointer (for protocols that need it)

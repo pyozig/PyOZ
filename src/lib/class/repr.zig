@@ -6,9 +6,8 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
+const class_mod = @import("mod.zig");
+const ClassInfo = class_mod.ClassInfo;
 
 /// Check if a field name indicates a private field (starts with underscore)
 fn isPrivateField(comptime field_name: []const u8) bool {
@@ -16,7 +15,7 @@ fn isPrivateField(comptime field_name: []const u8) bool {
 }
 
 /// Build repr protocol for a given type
-pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
+pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
     const struct_info = @typeInfo(T).@"struct";
     const fields = struct_info.fields;
 
@@ -70,7 +69,7 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
                 // Get field value, repr it, and append
                 const value = @field(data.*, field.name);
                 const val_str: ?*py.PyObject = blk: {
-                    const py_value = getConversions().toPy(field.type, value) orelse break :blk null;
+                    const py_value = conversion.Converter(class_infos).toPy(field.type, value) orelse break :blk null;
                     const repr_obj = py.PyObject_Repr(py_value);
                     py.Py_DecRef(py_value);
                     break :blk repr_obj;
@@ -102,14 +101,14 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
         pub fn py_magic_repr(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__repr__(self.getDataConst());
-            return getConversions().toPy(@TypeOf(result), result);
+            return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
         }
 
         /// Custom __str__ - calls T.__str__
         pub fn py_magic_str(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const result = T.__str__(self.getDataConst());
-            return getConversions().toPy(@TypeOf(result), result);
+            return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
         }
 
         /// Custom __hash__ - calls T.__hash__

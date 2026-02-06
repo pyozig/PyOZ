@@ -6,20 +6,12 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
-
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
-fn getSelfAwareConverter(comptime name: [*:0]const u8, comptime T: type) type {
-    return conversion.Converter(&[_]ClassInfo{.{ .name = name, .zig_type = T }});
-}
-
 /// Build callable protocol for a given type
-pub fn CallableProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Parent: type) type {
-    const Conv = getSelfAwareConverter(name, T);
+pub fn CallableProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
+    const Conv = conversion.Converter(class_infos);
 
     return struct {
         pub fn py_call(self_obj: ?*py.PyObject, args: ?*py.PyObject, kwargs: ?*py.PyObject) callconv(.c) ?*py.PyObject {
@@ -93,7 +85,7 @@ pub fn CallableProtocol(comptime name: [*:0]const u8, comptime T: type, comptime
 
             if (rt_info == .error_union) {
                 if (result) |value| {
-                    return getConversions().toPy(@TypeOf(value), value);
+                    return Conv.toPy(@TypeOf(value), value);
                 } else |err| {
                     const msg = @errorName(err);
                     py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
@@ -102,7 +94,7 @@ pub fn CallableProtocol(comptime name: [*:0]const u8, comptime T: type, comptime
             } else if (ReturnType == void) {
                 return py.Py_RETURN_NONE();
             } else {
-                return getConversions().toPy(ReturnType, result);
+                return Conv.toPy(ReturnType, result);
             }
         }
     };

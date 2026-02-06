@@ -615,7 +615,7 @@ pub fn module(comptime config: anytype) type {
 
             // Add classes to the module
             inline for (classes) |cls| {
-                const Wrapper = class_mod.getWrapperWithName(cls.name, cls.zig_type);
+                const Wrapper = class_mod.getWrapperWithName(cls.name, cls.zig_type, class_infos);
 
                 // Build qualified name "module.ClassName" so Python derives __module__
                 const qualified_name: [*:0]const u8 = comptime blk: {

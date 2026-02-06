@@ -355,6 +355,60 @@ pub fn add(self: *Builder, n: i64) *Builder {
 
 Python: `b.add(1).add(2).add(3)`
 
+## Cross-Class References
+
+When a module defines multiple classes, methods on one class can accept or return instances of another class in the same module. PyOZ handles this automatically — no special syntax needed.
+
+```zig
+const Point = struct {
+    x: f64,
+    y: f64,
+
+    pub fn magnitude(self: *const Point) f64 {
+        return @sqrt(self.x * self.x + self.y * self.y);
+    }
+};
+
+const Line = struct {
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+
+    /// Returns a Point — cross-class return
+    pub fn start_point(self: *const Line) Point {
+        return .{ .x = self.x1, .y = self.y1 };
+    }
+
+    /// Accepts two Points — cross-class arguments
+    pub fn from_points(p1: *const Point, p2: *const Point) Line {
+        return .{ .x1 = p1.x, .y1 = p1.y, .x2 = p2.x, .y2 = p2.y };
+    }
+};
+
+const MyModule = pyoz.module(.{
+    .name = "geometry",
+    .classes = &.{
+        pyoz.class("Point", Point),
+        pyoz.class("Line", Line),
+    },
+});
+```
+
+Python:
+```python
+import geometry
+
+p1 = geometry.Point(1.0, 2.0)
+p2 = geometry.Point(4.0, 6.0)
+
+line = geometry.Line.from_points(p1, p2)  # accepts Point instances
+start = line.start_point()                # returns a Point instance
+print(start.magnitude())                  # full Point API works
+```
+
+Cyclic references work too — class A methods can accept/return class B and vice versa, as long as both are registered in the same module.
+
 ## Next Steps
 
 - [Properties](properties.md) - Custom getters/setters

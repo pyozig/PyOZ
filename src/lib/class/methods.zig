@@ -7,19 +7,11 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const Path = conversion.Path;
 
-fn getConversions() type {
-    return conversion.Conversions;
-}
-
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
-fn getSelfAwareConverter(comptime name: [*:0]const u8, comptime T: type) type {
-    return conversion.Converter(&[_]ClassInfo{.{ .name = name, .zig_type = T }});
-}
-
 /// Build method wrappers for a given type
-pub fn MethodBuilder(comptime name: [*:0]const u8, comptime T: type, comptime PyWrapper: type) type {
+pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWrapper: type, comptime class_infos: []const ClassInfo) type {
     const struct_info = @typeInfo(T).@"struct";
     const decls = struct_info.decls;
 
@@ -316,8 +308,9 @@ pub fn MethodBuilder(comptime name: [*:0]const u8, comptime T: type, comptime Py
                     comptime var i: usize = 0;
                     inline for (1..params.len) |param_idx| {
                         const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
-                        // Use self-aware converter so methods can take *const T parameters
-                        result[i] = try getSelfAwareConverter(name, T).fromPy(params[param_idx].type.?, item);
+                        // Use class-aware converter so methods can take cross-class parameters
+                        const Conv = conversion.Converter(class_infos);
+                        result[i] = try Conv.fromPy(params[param_idx].type.?, item);
                         i += 1;
                     }
 
@@ -345,7 +338,7 @@ pub fn MethodBuilder(comptime name: [*:0]const u8, comptime T: type, comptime Py
                 fn handleReturn(result: ReturnType, self_obj: *py.PyObject, self_data: *T) ?*py.PyObject {
                     const rt_info = @typeInfo(ReturnType);
                     // Use self-aware converter so we can return instances of T
-                    const Conv = getSelfAwareConverter(name, T);
+                    const Conv = conversion.Converter(class_infos);
 
                     // Check if return type is pointer to T (return self pattern)
                     if (rt_info == .pointer) {
@@ -403,7 +396,7 @@ pub fn MethodBuilder(comptime name: [*:0]const u8, comptime T: type, comptime Py
             const params = fn_info.params;
             const ReturnType = fn_info.return_type orelse void;
             // Use a converter that knows about type T so we can return T instances
-            const Conv = getSelfAwareConverter(name, T);
+            const Conv = conversion.Converter(class_infos);
 
             return struct {
                 fn wrapper(self_obj: ?*py.PyObject, args: ?*py.PyObject) callconv(.c) ?*py.PyObject {
@@ -501,7 +494,7 @@ pub fn MethodBuilder(comptime name: [*:0]const u8, comptime T: type, comptime Py
             const params = fn_info.params;
             const ReturnType = fn_info.return_type orelse void;
             // Use a converter that knows about type T so we can return T instances
-            const Conv = getSelfAwareConverter(name, T);
+            const Conv = conversion.Converter(class_infos);
 
             return struct {
                 fn wrapper(cls_obj: ?*py.PyObject, args: ?*py.PyObject) callconv(.c) ?*py.PyObject {
