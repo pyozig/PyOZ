@@ -98,8 +98,7 @@ pub fn LifecycleBuilder(
                     const NewFn = @TypeOf(T.__new__);
                     const new_params = @typeInfo(NewFn).@"fn".params;
                     if (new_params.len == 0) {
-                        self.getData().* = T.__new__();
-                        return 0;
+                        return handleNewReturn(self, T.__new__());
                     }
                 }
                 if (public_field_count == 0) return 0;
@@ -134,8 +133,7 @@ pub fn LifecycleBuilder(
                     return -1;
                 };
 
-                self.getData().* = @call(.auto, T.__new__, zig_args);
-                return 0;
+                return handleNewReturn(self, @call(.auto, T.__new__, zig_args));
             }
 
             if (arg_count != public_field_count) {
@@ -161,6 +159,42 @@ pub fn LifecycleBuilder(
             }
 
             return 0;
+        }
+
+        /// Handle the return value of a user-defined __new__ function.
+        /// Supports three return conventions:
+        ///   - `T`  — plain struct (always succeeds)
+        ///   - `!T` — error union (error → RuntimeError, or user already set an exception)
+        ///   - `?T` — optional (null → TypeError, or user already set an exception via raise*)
+        fn handleNewReturn(self: *PyWrapper, result: anytype) c_int {
+            const RT = @TypeOf(result);
+            const rt_info = @typeInfo(RT);
+
+            if (rt_info == .error_union) {
+                if (result) |value| {
+                    self.getData().* = value;
+                    return 0;
+                } else |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                }
+            } else if (rt_info == .optional) {
+                if (result) |value| {
+                    self.getData().* = value;
+                    return 0;
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_TypeError(), "__new__ returned null");
+                    }
+                    return -1;
+                }
+            } else {
+                self.getData().* = result;
+                return 0;
+            }
         }
 
         fn parseNewArgs(py_args: *py.PyObject, actual_count: usize) !NewArgsTuple() {

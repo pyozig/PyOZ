@@ -101,18 +101,17 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
         /// Supports two signatures:
         ///   fn __repr__(self: *const T, buf: []u8) []const u8  -- writes into PyOZ-provided buffer (safe)
         ///   fn __repr__(self: *const T) []const u8             -- returns a slice directly (only safe for literals)
+        /// Return type can be []const u8, ![]const u8, or ?[]const u8.
         pub fn py_magic_repr(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
+            const Conv = conversion.Converter(class_infos);
             const repr_fn_info = @typeInfo(@TypeOf(T.__repr__)).@"fn";
+            const RetType = repr_fn_info.return_type.?;
             if (repr_fn_info.params.len == 2) {
-                // New buffered signature: fn(self, buf) -> []const u8
                 var buf: [4096]u8 = undefined;
-                const result = T.__repr__(self.getDataConst(), &buf);
-                return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                return handleReprReturn(RetType, T.__repr__(self.getDataConst(), &buf), Conv);
             } else {
-                // Legacy signature: fn(self) -> []const u8
-                const result = T.__repr__(self.getDataConst());
-                return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                return handleReprReturn(RetType, T.__repr__(self.getDataConst()), Conv);
             }
         }
 
@@ -120,25 +119,73 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
         /// Supports two signatures:
         ///   fn __str__(self: *const T, buf: []u8) []const u8  -- writes into PyOZ-provided buffer (safe)
         ///   fn __str__(self: *const T) []const u8             -- returns a slice directly (only safe for literals)
+        /// Return type can be []const u8, ![]const u8, or ?[]const u8.
         pub fn py_magic_str(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
+            const Conv = conversion.Converter(class_infos);
             const str_fn_info = @typeInfo(@TypeOf(T.__str__)).@"fn";
+            const RetType = str_fn_info.return_type.?;
             if (str_fn_info.params.len == 2) {
-                // New buffered signature: fn(self, buf) -> []const u8
                 var buf: [4096]u8 = undefined;
-                const result = T.__str__(self.getDataConst(), &buf);
-                return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                return handleReprReturn(RetType, T.__str__(self.getDataConst(), &buf), Conv);
             } else {
-                // Legacy signature: fn(self) -> []const u8
-                const result = T.__str__(self.getDataConst());
-                return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                return handleReprReturn(RetType, T.__str__(self.getDataConst()), Conv);
             }
         }
 
         /// Custom __hash__ - calls T.__hash__
         pub fn py_hash(self_obj: ?*py.PyObject) callconv(.c) py.c.Py_hash_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            return @intCast(T.__hash__(self.getDataConst()));
+            const HashFn = @TypeOf(T.__hash__);
+            const HashRetType = @typeInfo(HashFn).@"fn".return_type.?;
+            if (@typeInfo(HashRetType) == .error_union) {
+                const result = T.__hash__(self.getDataConst()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                };
+                return @intCast(result);
+            } else if (@typeInfo(HashRetType) == .optional) {
+                if (T.__hash__(self.getDataConst())) |result| {
+                    return @intCast(result);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_TypeError(), "unhashable type");
+                    }
+                    return -1;
+                }
+            } else {
+                return @intCast(T.__hash__(self.getDataConst()));
+            }
+        }
+
+        /// Handle repr/str return types: plain, error union, or optional
+        fn handleReprReturn(comptime RetType: type, result: RetType, comptime Conv: type) ?*py.PyObject {
+            const rt_info = @typeInfo(RetType);
+            if (rt_info == .error_union) {
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                }
+            } else if (rt_info == .optional) {
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "repr/str returned null");
+                    }
+                    return null;
+                }
+            } else {
+                return Conv.toPy(RetType, result);
+            }
         }
     };
 }

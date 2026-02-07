@@ -90,37 +90,97 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
             return nm;
         }
 
-        fn py_nb_add(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
+        /// Handle return value from a number protocol method.
+        /// Supports plain T, !T (error union), and ?T (optional).
+        fn handleNumberReturn(comptime RetType: type, result: RetType, default_exc: *py.PyObject) ?*py.PyObject {
+            const rt_info = @typeInfo(RetType);
+            if (rt_info == .error_union) {
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(default_exc, msg.ptr);
+                    }
+                    return null;
+                }
+            } else if (rt_info == .optional) {
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(default_exc, "operation returned null");
+                    }
+                    return null;
+                }
+            } else {
+                return Conv.toPy(RetType, result);
+            }
+        }
+
+        /// Handle return value from an in-place number protocol method.
+        /// In-place ops return void, !void, or ?@TypeOf(null).
+        fn handleInplaceReturn(comptime RetType: type, result: RetType, self_obj: ?*py.PyObject) ?*py.PyObject {
+            const rt_info = @typeInfo(RetType);
+            if (rt_info == .error_union) {
+                _ = result catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                };
+                py.Py_IncRef(self_obj);
+                return self_obj;
+            } else if (rt_info == .optional) {
+                if (result == null) {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "in-place operation failed");
+                    }
+                    return null;
+                }
+                py.Py_IncRef(self_obj);
+                return self_obj;
+            } else {
+                py.Py_IncRef(self_obj);
+                return self_obj;
+            }
+        }
+
+        /// Generic binary op helper: handles forward, reverse, and mixed-type dispatch.
+        fn binop(comptime forward: []const u8, comptime reverse: []const u8, exc: *py.PyObject, self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) ?*py.PyObject {
             const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
             const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
 
             if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__add__")) {
+                if (@hasDecl(T, forward)) {
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__add__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
+                    const Fn = @TypeOf(@field(T, forward));
+                    const RetType = @typeInfo(Fn).@"fn".return_type.?;
+                    return handleNumberReturn(RetType, @field(T, forward)(self.getDataConst(), other.getDataConst()), exc);
                 }
             }
 
             if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__radd__")) {
+                if (@hasDecl(T, reverse)) {
                     const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__radd__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
+                    const RFn = @TypeOf(@field(T, reverse));
+                    const RRetType = @typeInfo(RFn).@"fn".return_type.?;
+                    return handleNumberReturn(RRetType, @field(T, reverse)(other.getDataConst(), self_obj.?), exc);
                 }
             }
 
             if (self_is_T and !other_is_T) {
-                if (@hasDecl(T, "__add__")) {
-                    const AddFn = @TypeOf(T.__add__);
-                    const add_params = @typeInfo(AddFn).@"fn".params;
-                    if (add_params.len >= 2) {
-                        const OtherType = add_params[1].type.?;
+                if (@hasDecl(T, forward)) {
+                    const Fn = @TypeOf(@field(T, forward));
+                    const fwd_params = @typeInfo(Fn).@"fn".params;
+                    if (fwd_params.len >= 2) {
+                        const OtherType = fwd_params[1].type.?;
                         if (OtherType == ?*py.PyObject or OtherType == *py.PyObject) {
                             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                            const result = T.__add__(self.getDataConst(), other_obj.?);
-                            return Conv.toPy(@TypeOf(result), result);
+                            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+                            return handleNumberReturn(RetType, @field(T, forward)(self.getDataConst(), other_obj.?), exc);
                         }
                     }
                 }
@@ -129,567 +189,195 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
             return py.Py_NotImplemented();
         }
 
+        /// Generic inplace op helper.
+        fn inplace_op(comptime method: []const u8, self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) ?*py.PyObject {
+            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
+            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
+            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
+                return py.Py_NotImplemented();
+            }
+            const Fn = @TypeOf(@field(T, method));
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleInplaceReturn(RetType, @field(T, method)(self.getData(), other.getDataConst()), self_obj);
+        }
+
+        fn py_nb_add(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
+            return binop("__add__", "__radd__", py.PyExc_RuntimeError(), self_obj, other_obj);
+        }
+
         fn py_nb_sub(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__sub__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__sub__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rsub__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rsub__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__sub__", "__rsub__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_mul(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__mul__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__mul__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rmul__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rmul__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__mul__", "__rmul__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_neg(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__neg__(self.getDataConst());
-            return Conv.toPy(T, result);
+            const Fn = @TypeOf(T.__neg__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__neg__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_truediv(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__truediv__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const TrueDivFn = @TypeOf(T.__truediv__);
-                    const RetType = @typeInfo(TrueDivFn).@"fn".return_type.?;
-                    if (@typeInfo(RetType) == .error_union) {
-                        const result = T.__truediv__(self.getDataConst(), other.getDataConst()) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_ZeroDivisionError(), msg.ptr);
-                            return null;
-                        };
-                        return Conv.toPy(@TypeOf(result), result);
-                    } else {
-                        const result = T.__truediv__(self.getDataConst(), other.getDataConst());
-                        return Conv.toPy(RetType, result);
-                    }
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rtruediv__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rtruediv__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__truediv__", "__rtruediv__", py.PyExc_ZeroDivisionError(), self_obj, other_obj);
         }
 
         fn py_nb_floordiv(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__floordiv__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const FloorDivFn = @TypeOf(T.__floordiv__);
-                    const RetType = @typeInfo(FloorDivFn).@"fn".return_type.?;
-                    if (@typeInfo(RetType) == .error_union) {
-                        const result = T.__floordiv__(self.getDataConst(), other.getDataConst()) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_ZeroDivisionError(), msg.ptr);
-                            return null;
-                        };
-                        return Conv.toPy(@TypeOf(result), result);
-                    } else {
-                        const result = T.__floordiv__(self.getDataConst(), other.getDataConst());
-                        return Conv.toPy(RetType, result);
-                    }
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rfloordiv__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rfloordiv__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__floordiv__", "__rfloordiv__", py.PyExc_ZeroDivisionError(), self_obj, other_obj);
         }
 
         fn py_nb_mod(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__mod__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const ModFn = @TypeOf(T.__mod__);
-                    const RetType = @typeInfo(ModFn).@"fn".return_type.?;
-                    if (@typeInfo(RetType) == .error_union) {
-                        const result = T.__mod__(self.getDataConst(), other.getDataConst()) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_ZeroDivisionError(), msg.ptr);
-                            return null;
-                        };
-                        return Conv.toPy(@TypeOf(result), result);
-                    } else {
-                        const result = T.__mod__(self.getDataConst(), other.getDataConst());
-                        return Conv.toPy(RetType, result);
-                    }
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rmod__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rmod__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__mod__", "__rmod__", py.PyExc_ZeroDivisionError(), self_obj, other_obj);
         }
 
         fn py_nb_divmod(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__divmod__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const DivmodFn = @TypeOf(T.__divmod__);
-                    const RetType = @typeInfo(DivmodFn).@"fn".return_type.?;
-                    if (@typeInfo(RetType) == .error_union) {
-                        const result = T.__divmod__(self.getDataConst(), other.getDataConst()) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_ZeroDivisionError(), msg.ptr);
-                            return null;
-                        };
-                        return Conv.toPy(@TypeOf(result), result);
-                    } else {
-                        const result = T.__divmod__(self.getDataConst(), other.getDataConst());
-                        return Conv.toPy(RetType, result);
-                    }
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rdivmod__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rdivmod__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__divmod__", "__rdivmod__", py.PyExc_ZeroDivisionError(), self_obj, other_obj);
         }
 
         fn py_nb_bool(self_obj: ?*py.PyObject) callconv(.c) c_int {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            const result = T.__bool__(self.getDataConst());
-            return if (result) 1 else 0;
+            const BoolFn = @TypeOf(T.__bool__);
+            const BoolRetType = @typeInfo(BoolFn).@"fn".return_type.?;
+            if (@typeInfo(BoolRetType) == .error_union) {
+                const result = T.__bool__(self.getDataConst()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                };
+                return if (result) 1 else 0;
+            } else {
+                const result = T.__bool__(self.getDataConst());
+                return if (result) 1 else 0;
+            }
         }
 
         fn py_nb_pow(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject, mod_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             _ = mod_obj;
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__pow__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const PowFn = @TypeOf(T.__pow__);
-                    const RetType = @typeInfo(PowFn).@"fn".return_type.?;
-                    if (@typeInfo(RetType) == .error_union) {
-                        const result = T.__pow__(self.getDataConst(), other.getDataConst()) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_ValueError(), msg.ptr);
-                            return null;
-                        };
-                        return Conv.toPy(@TypeOf(result), result);
-                    } else {
-                        const result = T.__pow__(self.getDataConst(), other.getDataConst());
-                        return Conv.toPy(RetType, result);
-                    }
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rpow__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rpow__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__pow__", "__rpow__", py.PyExc_ValueError(), self_obj, other_obj);
         }
 
         fn py_nb_pos(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__pos__(self.getDataConst());
-            return Conv.toPy(T, result);
+            const Fn = @TypeOf(T.__pos__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__pos__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_abs(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__abs__(self.getDataConst());
-            return Conv.toPy(T, result);
+            const Fn = @TypeOf(T.__abs__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__abs__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_invert(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__invert__(self.getDataConst());
-            return Conv.toPy(T, result);
+            const Fn = @TypeOf(T.__invert__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__invert__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_lshift(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__lshift__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__lshift__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rlshift__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rlshift__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__lshift__", "__rlshift__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_rshift(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rshift__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rshift__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rrshift__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rrshift__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__rshift__", "__rrshift__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_and(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__and__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__and__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rand__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rand__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__and__", "__rand__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_or(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__or__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__or__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__ror__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__ror__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__or__", "__ror__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_xor(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__xor__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__xor__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(T, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rxor__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rxor__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__xor__", "__rxor__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_matmul(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self_is_T = py.PyObject_TypeCheck(self_obj.?, Parent.getTypeObjectPtr());
-            const other_is_T = py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr());
-
-            if (self_is_T and other_is_T) {
-                if (@hasDecl(T, "__matmul__")) {
-                    const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const MatmulFn = @TypeOf(T.__matmul__);
-                    const RetType = @typeInfo(MatmulFn).@"fn".return_type.?;
-                    const result = T.__matmul__(self.getDataConst(), other.getDataConst());
-                    return Conv.toPy(RetType, result);
-                }
-            }
-
-            if (!self_is_T and other_is_T) {
-                if (@hasDecl(T, "__rmatmul__")) {
-                    const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-                    const result = T.__rmatmul__(other.getDataConst(), self_obj.?);
-                    return Conv.toPy(@TypeOf(result), result);
-                }
-            }
-
-            return py.Py_NotImplemented();
+            return binop("__matmul__", "__rmatmul__", py.PyExc_RuntimeError(), self_obj, other_obj);
         }
 
         fn py_nb_int(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__int__(self.getDataConst());
-            return Conv.toPy(@TypeOf(result), result);
+            const Fn = @TypeOf(T.__int__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__int__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_float(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__float__(self.getDataConst());
-            return Conv.toPy(@TypeOf(result), result);
+            const Fn = @TypeOf(T.__float__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__float__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_index(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__index__(self.getDataConst());
-            return Conv.toPy(@TypeOf(result), result);
+            const Fn = @TypeOf(T.__index__);
+            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            return handleNumberReturn(RetType, T.__index__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         // In-place operators
         fn py_nb_iadd(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__iadd__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__iadd__", self_obj, other_obj);
         }
 
         fn py_nb_isub(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__isub__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__isub__", self_obj, other_obj);
         }
 
         fn py_nb_imul(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__imul__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__imul__", self_obj, other_obj);
         }
 
         fn py_nb_itruediv(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__itruediv__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__itruediv__", self_obj, other_obj);
         }
 
         fn py_nb_ifloordiv(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__ifloordiv__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__ifloordiv__", self_obj, other_obj);
         }
 
         fn py_nb_imod(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__imod__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__imod__", self_obj, other_obj);
         }
 
         fn py_nb_ipow(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject, mod_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             _ = mod_obj;
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__ipow__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__ipow__", self_obj, other_obj);
         }
 
         fn py_nb_ilshift(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__ilshift__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__ilshift__", self_obj, other_obj);
         }
 
         fn py_nb_irshift(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__irshift__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__irshift__", self_obj, other_obj);
         }
 
         fn py_nb_iand(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__iand__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__iand__", self_obj, other_obj);
         }
 
         fn py_nb_ior(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__ior__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__ior__", self_obj, other_obj);
         }
 
         fn py_nb_ixor(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__ixor__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__ixor__", self_obj, other_obj);
         }
 
         fn py_nb_imatmul(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
-            const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
-            if (!py.PyObject_TypeCheck(other_obj.?, Parent.getTypeObjectPtr())) {
-                return py.Py_NotImplemented();
-            }
-            T.__imatmul__(self.getData(), other.getDataConst());
-            py.Py_IncRef(self_obj);
-            return self_obj;
+            return inplace_op("__imatmul__", self_obj, other_obj);
         }
 
         // ====================================================================

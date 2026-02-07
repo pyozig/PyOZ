@@ -152,6 +152,82 @@ This works with any optional return type (`?i64`, `?f64`, `?[]const u8`, `?*pyoz
 - If an exception is set: exception propagates to Python
 - If no exception: returns Python `None`
 
+## Error Handling in Magic Methods
+
+All dunder methods (magic methods) support the same three return conventions as regular functions:
+
+### Error Unions (`!T`)
+
+Return an error union to have Zig errors automatically become Python exceptions:
+
+```zig
+const Ring = struct {
+    elements: ?*pyoz.PyObject,
+
+    pub fn __new__(capacity: i64) !Ring {
+        if (capacity <= 0) return error.InvalidCapacity;
+        const list = pyoz.py.PyList_New(0) orelse return error.MemoryError;
+        return .{ .elements = list };
+    }
+
+    pub fn __add__(self: *const Ring, other: *const Ring) !Ring {
+        _ = other;
+        if (self.elements == null) return error.EmptyRing;
+        return self.*;
+    }
+
+    pub fn __len__(self: *const Ring) !usize {
+        if (self.elements == null) return error.EmptyRing;
+        return @intCast(pyoz.py.PyList_Size(self.elements.?));
+    }
+};
+```
+
+By default, errors become `RuntimeError`. Use [error mappings](#error-mapping) for specific exception types:
+
+```zig
+.error_mappings = &.{
+    pyoz.mapError("InvalidCapacity", .ValueError),
+    pyoz.mapError("MemoryError", .MemoryError),
+    pyoz.mapError("EmptyRing", .RuntimeError),
+},
+```
+
+### Optional Returns (`?T`)
+
+Use optional returns with explicit exception raising for more control:
+
+```zig
+pub fn __new__(capacity: i64) ?Ring {
+    if (capacity <= 0) {
+        return pyoz.raiseValueError("capacity must be positive");
+    }
+    const list = pyoz.py.PyList_New(0) orelse {
+        return pyoz.raiseMemoryError("failed to allocate list");
+    };
+    return .{ .elements = list };
+}
+```
+
+### Supported Methods
+
+Every magic method supports `!T` and `?T` returns:
+
+| Category | Methods |
+|----------|---------|
+| Constructor | `__new__` |
+| Arithmetic | `__add__`, `__sub__`, `__mul__`, `__truediv__`, `__floordiv__`, `__mod__`, `__pow__`, `__matmul__`, `__neg__`, `__pos__`, `__abs__`, `__invert__` |
+| In-place | `__iadd__`, `__isub__`, `__imul__`, etc. |
+| Reflected | `__radd__`, `__rsub__`, `__rmul__`, etc. |
+| Comparison | `__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`, `__ge__` |
+| Sequence | `__len__`, `__getitem__`, `__setitem__`, `__delitem__`, `__contains__` |
+| String | `__repr__`, `__str__`, `__hash__` |
+| Conversion | `__bool__`, `__int__`, `__float__`, `__index__` |
+| Callable | `__call__` |
+| Iterator | `__iter__`, `__next__` |
+| Descriptor | `__get__`, `__set__`, `__delete__` |
+| Attributes | `__getattr__`, `__setattr__`, `__delattr__` |
+
 ## Best Practices
 
 1. **Use error unions for recoverable errors** - They're idiomatic Zig and map cleanly to Python exceptions

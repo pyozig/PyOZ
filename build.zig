@@ -92,10 +92,13 @@ pub fn build(b: *std.Build) void {
     // ABI3 option - hardcoded to Python 3.8 minimum (see src/lib/python/types.zig)
     const abi3 = b.option(bool, "abi3", "Enable Python Stable ABI (Limited API) mode") orelse false;
 
+    // Optional: override Python include paths (used by pypi/build.zig for cross-compilation)
+    const python_include_dirs: ?[]const []const u8 = b.option([]const []const u8, "python-include-dirs", "Override Python include paths for cross-compilation");
+
     // Detect Python on the system
     const python_config = detectPython(b);
 
-    if (python_config == null) {
+    if (python_config == null and python_include_dirs == null) {
         if (builtin.os.tag == .windows) {
             std.log.warn("Python not detected! Make sure python is in PATH.", .{});
         } else {
@@ -128,7 +131,12 @@ pub fn build(b: *std.Build) void {
     pyoz_mod.addOptions("build_options", abi3_options);
 
     // Add Python include path to the module
-    if (python_config) |python| {
+    if (python_include_dirs) |dirs| {
+        // Cross-compilation: use explicitly provided include paths
+        for (dirs) |dir| {
+            pyoz_mod.addIncludePath(.{ .cwd_relative = dir });
+        }
+    } else if (python_config) |python| {
         pyoz_mod.addIncludePath(.{ .cwd_relative = python.include_dir });
     }
 

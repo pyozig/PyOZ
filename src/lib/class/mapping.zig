@@ -34,8 +34,30 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
 
         fn py_mp_length(self_obj: ?*py.PyObject) callconv(.c) py.Py_ssize_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            const result = T.__len__(self.getDataConst());
-            return @intCast(result);
+            const LenFn = @TypeOf(T.__len__);
+            const LenRetType = @typeInfo(LenFn).@"fn".return_type.?;
+            if (@typeInfo(LenRetType) == .error_union) {
+                const result = T.__len__(self.getDataConst()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                };
+                return @intCast(result);
+            } else if (@typeInfo(LenRetType) == .optional) {
+                if (T.__len__(self.getDataConst())) |result| {
+                    return @intCast(result);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "__len__ returned null");
+                    }
+                    return -1;
+                }
+            } else {
+                const result = T.__len__(self.getDataConst());
+                return @intCast(result);
+            }
         }
 
         fn py_mp_subscript(self_obj: ?*py.PyObject, key_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
@@ -63,15 +85,30 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
             const GetItemRetType = fn_info.return_type.?;
             if (@typeInfo(GetItemRetType) == .error_union) {
                 const result = T.__getitem__(self.getDataConst(), zig_key) catch |err| {
-                    const msg = @errorName(err);
-                    if (is_integer_key) {
-                        py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
-                    } else {
-                        py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        if (is_integer_key) {
+                            py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                        } else {
+                            py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                        }
                     }
                     return null;
                 };
                 return Conv.toPy(@TypeOf(result), result);
+            } else if (@typeInfo(GetItemRetType) == .optional) {
+                if (T.__getitem__(self.getDataConst(), zig_key)) |result| {
+                    return Conv.toPy(@TypeOf(result), result);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        if (is_integer_key) {
+                            py.PyErr_SetString(py.PyExc_IndexError(), "index out of range");
+                        } else {
+                            py.PyErr_SetString(py.PyExc_KeyError(), "key not found");
+                        }
+                    }
+                    return null;
+                }
             } else {
                 const result = T.__getitem__(self.getDataConst(), zig_key);
                 return Conv.toPy(GetItemRetType, result);
@@ -115,14 +152,23 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
                 const SetRetType = set_fn_info.return_type.?;
                 if (@typeInfo(SetRetType) == .error_union) {
                     T.__setitem__(self.getData(), zig_key, zig_value) catch |err| {
-                        const msg = @errorName(err);
-                        if (is_integer_key) {
-                            py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
-                        } else {
-                            py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                        if (py.PyErr_Occurred() == null) {
+                            const msg = @errorName(err);
+                            if (is_integer_key) {
+                                py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                            } else {
+                                py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                            }
                         }
                         return -1;
                     };
+                } else if (@typeInfo(SetRetType) == .optional) {
+                    if (T.__setitem__(self.getData(), zig_key, zig_value) == null) {
+                        if (py.PyErr_Occurred() == null) {
+                            py.PyErr_SetString(py.PyExc_RuntimeError(), "__setitem__ failed");
+                        }
+                        return -1;
+                    }
                 } else {
                     T.__setitem__(self.getData(), zig_key, zig_value);
                 }
@@ -154,14 +200,23 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
                 const DelRetType = del_fn_info.return_type.?;
                 if (@typeInfo(DelRetType) == .error_union) {
                     T.__delitem__(self.getData(), zig_key) catch |err| {
-                        const msg = @errorName(err);
-                        if (is_integer_key) {
-                            py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
-                        } else {
-                            py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                        if (py.PyErr_Occurred() == null) {
+                            const msg = @errorName(err);
+                            if (is_integer_key) {
+                                py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                            } else {
+                                py.PyErr_SetString(py.PyExc_KeyError(), msg.ptr);
+                            }
                         }
                         return -1;
                     };
+                } else if (@typeInfo(DelRetType) == .optional) {
+                    if (T.__delitem__(self.getData(), zig_key) == null) {
+                        if (py.PyErr_Occurred() == null) {
+                            py.PyErr_SetString(py.PyExc_RuntimeError(), "__delitem__ failed");
+                        }
+                        return -1;
+                    }
                 } else {
                     T.__delitem__(self.getData(), zig_key);
                 }

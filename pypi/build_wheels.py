@@ -14,11 +14,15 @@ a _pyoz.so/.pyd native module that exposes the CLI as a Python library.
 
 import argparse
 import hashlib
+import io
 import os
 import platform as plat
 import re
+import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
 import zipfile
 
 # Map from (os, arch) to (zig target, wheel platform tag, extension)
@@ -30,6 +34,211 @@ TARGETS = [
     ("x86_64-windows", "win_amd64", ".pyd"),
     ("aarch64-windows", "win_arm64", ".pyd"),
 ]
+
+
+# CPython version to download headers from (abi3 headers are forward-compatible)
+CPYTHON_VERSION = "3.13.1"
+CPYTHON_URL = (
+    f"https://www.python.org/ftp/python/{CPYTHON_VERSION}/Python-{CPYTHON_VERSION}.tgz"
+)
+
+
+def _generate_python3_def(headers_dir, toml_content):
+    """Generate python3.def from stable_abi.toml for Windows import library.
+
+    The .def file lists all symbols exported by python3.dll (the Stable ABI DLL).
+    This is used by `zig dlltool` to generate python3.lib for cross-compilation.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        try:
+            import tomli as tomllib
+        except ImportError:
+            print(
+                "  Warning: no TOML parser available, skipping python3.def generation"
+            )
+            return
+
+    data = tomllib.loads(toml_content)
+    functions = []
+    datas = []
+
+    for category, entries in data.items():
+        if not isinstance(entries, dict):
+            continue
+        for name, info in entries.items():
+            if not isinstance(info, dict):
+                continue
+            if category == "function":
+                functions.append(name)
+            elif category == "data":
+                datas.append(name)
+
+    def_path = os.path.join(headers_dir, "windows", "python3.def")
+    with open(def_path, "w") as f:
+        f.write("LIBRARY python3\n")
+        f.write("EXPORTS\n")
+        for name in sorted(functions):
+            f.write(f"    {name}\n")
+        for name in sorted(datas):
+            f.write(f"    {name} DATA\n")
+
+    print(
+        f"  Generated python3.def ({len(functions)} functions, {len(datas)} data symbols)"
+    )
+
+
+def ensure_python_headers(headers_dir):
+    """Download CPython headers for cross-compilation if not already cached.
+
+    Downloads the CPython source tarball and extracts:
+    - Include/*.h and Include/cpython/*.h → headers_dir/ (platform-independent)
+    - PC/pyconfig.h → headers_dir/windows/pyconfig.h (Windows-specific)
+    - Host pyconfig.h → headers_dir/unix/pyconfig.h (for Linux/macOS cross-targets)
+    """
+    marker = os.path.join(headers_dir, ".cpython-version")
+    if os.path.exists(marker):
+        with open(marker) as f:
+            if f.read().strip() == CPYTHON_VERSION:
+                print(
+                    f"  Using cached CPython {CPYTHON_VERSION} headers in {headers_dir}"
+                )
+                return
+
+    print(f"  Downloading CPython {CPYTHON_VERSION} headers...")
+
+    # Clean previous headers
+    if os.path.exists(headers_dir):
+        shutil.rmtree(headers_dir)
+
+    os.makedirs(headers_dir, exist_ok=True)
+    os.makedirs(os.path.join(headers_dir, "windows"), exist_ok=True)
+    os.makedirs(os.path.join(headers_dir, "unix"), exist_ok=True)
+
+    # Download and extract
+    resp = urllib.request.urlopen(CPYTHON_URL)
+    data = resp.read()
+    print(f"  Downloaded {len(data) // (1024 * 1024)}MB")
+
+    prefix = f"Python-{CPYTHON_VERSION}/"
+    include_prefix = prefix + "Include/"
+    # Windows pyconfig.h is named pyconfig.h.in in the source tree but is a
+    # complete, manually-maintained header (no @VARIABLE@ substitution needed)
+    pc_pyconfig = prefix + "PC/pyconfig.h.in"
+    stable_abi_toml = prefix + "Misc/stable_abi.toml"
+
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+
+            # Extract Include/ headers (platform-independent)
+            if member.name.startswith(include_prefix):
+                rel = member.name[len(include_prefix) :]
+                if not rel:
+                    continue
+                dest = os.path.join(headers_dir, rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                src = tar.extractfile(member)
+                if src is not None:
+                    with open(dest, "wb") as dst:
+                        dst.write(src.read())
+                    src.close()
+
+            # Extract PC/pyconfig.h for Windows
+            elif member.name == pc_pyconfig:
+                dest = os.path.join(headers_dir, "windows", "pyconfig.h")
+                src = tar.extractfile(member)
+                if src is not None:
+                    with open(dest, "wb") as dst:
+                        dst.write(src.read())
+                    src.close()
+
+            # Extract stable_abi.toml for generating python3.def
+            elif member.name == stable_abi_toml:
+                src = tar.extractfile(member)
+                if src is not None:
+                    toml_content = src.read().decode()
+                    src.close()
+                    _generate_python3_def(headers_dir, toml_content)
+
+    # Copy host pyconfig.h for Unix cross-targets (Linux→macOS works because
+    # both are LP64 with identical SIZEOF_* values: SIZEOF_LONG=8, SIZEOF_WCHAR_T=4)
+    host_pyconfig = _find_host_pyconfig()
+    if host_pyconfig:
+        shutil.copy2(host_pyconfig, os.path.join(headers_dir, "unix", "pyconfig.h"))
+        print(f"  Copied host pyconfig.h from {host_pyconfig}")
+    else:
+        print("  Warning: could not find host pyconfig.h for Unix cross-targets")
+
+    # Write version marker for caching
+    with open(marker, "w") as f:
+        f.write(CPYTHON_VERSION)
+
+    header_count = sum(
+        1 for _, _, files in os.walk(headers_dir) for f in files if f.endswith(".h")
+    )
+    print(f"  Extracted {header_count} headers to {headers_dir}")
+
+
+def _find_host_pyconfig():
+    """Find the host Python's real pyconfig.h (not the multiarch dispatch stub).
+
+    On Debian/Ubuntu, /usr/include/python3.X/pyconfig.h is a multiarch stub
+    that dispatches via #ifdef __linux__ / __x86_64__ etc. We need the actual
+    platform-specific pyconfig.h (e.g. /usr/include/x86_64-linux-gnu/python3.X/)
+    which contains the real SIZEOF_* defines.
+    """
+    # First try: sysconfig platinclude (gives the real arch-specific path)
+    try:
+        result = subprocess.run(
+            [
+                "python3",
+                "-c",
+                "import sysconfig; print(sysconfig.get_path('platinclude'))",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        platinclude = result.stdout.strip()
+        pyconfig = os.path.join(platinclude, "pyconfig.h")
+        if os.path.isfile(pyconfig):
+            # Verify it's the real pyconfig.h, not a multiarch stub
+            with open(pyconfig) as f:
+                content = f.read()
+            if "unknown multiarch location" not in content:
+                return pyconfig
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    # Fallback: try multiarch-specific locations (Debian/Ubuntu layout)
+    import struct
+
+    arch = "x86_64" if struct.calcsize("P") == 8 else "i386"
+    for ver in ["3.13", "3.12", "3.11", "3.10"]:
+        path = f"/usr/include/{arch}-linux-gnu/python{ver}/pyconfig.h"
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def stage_pyconfig(headers_dir, zig_target):
+    """Copy the correct platform-specific pyconfig.h into the headers directory.
+
+    Python.h does #include "pyconfig.h" with quotes, so it must be in the
+    same directory as Python.h for the compiler to find it.
+    """
+    if "windows" in zig_target:
+        src = os.path.join(headers_dir, "windows", "pyconfig.h")
+    else:
+        src = os.path.join(headers_dir, "unix", "pyconfig.h")
+
+    dst = os.path.join(headers_dir, "pyconfig.h")
+    if os.path.isfile(src):
+        shutil.copy2(src, dst)
+    else:
+        print(f"  Warning: pyconfig.h not found at {src}")
 
 
 def get_version():
@@ -58,7 +267,7 @@ def read_readme():
         return f.read()
 
 
-def zig_build(target=None, release=True):
+def zig_build(target=None, release=True, python_headers_dir=None):
     """Run zig build in the pypi/ directory, optionally cross-compiling."""
     pypi_dir = os.path.dirname(os.path.abspath(__file__))
     cmd = ["zig", "build"]
@@ -66,6 +275,8 @@ def zig_build(target=None, release=True):
         cmd.append("-Doptimize=ReleaseFast")
     if target:
         cmd.extend([f"-Dtarget={target}"])
+    if python_headers_dir:
+        cmd.append(f"-Dpython-headers-dir={python_headers_dir}")
     print(f"  Building: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=pypi_dir)
     if result.returncode != 0:
@@ -75,11 +286,13 @@ def zig_build(target=None, release=True):
 
 
 def find_extension(ext=".so"):
-    """Find the built _pyoz extension in zig-out/lib/."""
+    """Find the built _pyoz extension in zig-out/lib/ or zig-out/bin/ (Windows)."""
     pypi_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(pypi_dir, "zig-out", "lib", f"_pyoz{ext}")
-    if os.path.isfile(path):
-        return path
+    # Zig puts shared libraries in lib/ on Unix but DLLs in bin/ on Windows
+    for subdir in ("lib", "bin"):
+        path = os.path.join(pypi_dir, "zig-out", subdir, f"_pyoz{ext}")
+        if os.path.isfile(path):
+            return path
     return None
 
 
@@ -222,6 +435,14 @@ def main():
     print(f"Output: {dist_dir}")
     print()
 
+    # Download bundled CPython headers for all targets (Zig's sysroot doesn't
+    # include the host Python's multiarch headers, so we always need these)
+    pypi_dir = os.path.dirname(os.path.abspath(__file__))
+    headers_dir = os.path.join(pypi_dir, "python-headers")
+    if not args.current_only and not args.no_build:
+        ensure_python_headers(headers_dir)
+        print()
+
     wheels_built = 0
 
     if args.current_only:
@@ -242,7 +463,12 @@ def main():
     else:
         for zig_target, platform_tag, ext in TARGETS:
             if not args.no_build:
-                if not zig_build(target=zig_target, release=True):
+                stage_pyconfig(headers_dir, zig_target)
+                if not zig_build(
+                    target=zig_target,
+                    release=True,
+                    python_headers_dir=headers_dir,
+                ):
                     print(f"  Skipping {zig_target} (build failed)")
                     continue
 

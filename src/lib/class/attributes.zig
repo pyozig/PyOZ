@@ -85,10 +85,19 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
                             // Raw PyObject - pass directly
                             if (@typeInfo(RetType) == .error_union) {
                                 T.__setattr__(self.getData(), attr_name, value) catch |err| {
-                                    const msg = @errorName(err);
-                                    py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                                    if (py.PyErr_Occurred() == null) {
+                                        const msg = @errorName(err);
+                                        py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                                    }
                                     return -1;
                                 };
+                            } else if (@typeInfo(RetType) == .optional) {
+                                if (T.__setattr__(self.getData(), attr_name, value) == null) {
+                                    if (py.PyErr_Occurred() == null) {
+                                        py.PyErr_SetString(py.PyExc_AttributeError(), "__setattr__ failed");
+                                    }
+                                    return -1;
+                                }
                             } else {
                                 T.__setattr__(self.getData(), attr_name, value);
                             }
@@ -101,10 +110,19 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
                             };
                             if (@typeInfo(RetType) == .error_union) {
                                 T.__setattr__(self.getData(), attr_name, zig_value) catch |err| {
-                                    const msg = @errorName(err);
-                                    py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                                    if (py.PyErr_Occurred() == null) {
+                                        const msg = @errorName(err);
+                                        py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                                    }
                                     return -1;
                                 };
+                            } else if (@typeInfo(RetType) == .optional) {
+                                if (T.__setattr__(self.getData(), attr_name, zig_value) == null) {
+                                    if (py.PyErr_Occurred() == null) {
+                                        py.PyErr_SetString(py.PyExc_AttributeError(), "__setattr__ failed");
+                                    }
+                                    return -1;
+                                }
                             } else {
                                 T.__setattr__(self.getData(), attr_name, zig_value);
                             }
@@ -120,10 +138,19 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
 
                     if (@typeInfo(RetType) == .error_union) {
                         T.__delattr__(self.getData(), attr_name) catch |err| {
-                            const msg = @errorName(err);
-                            py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                            if (py.PyErr_Occurred() == null) {
+                                const msg = @errorName(err);
+                                py.PyErr_SetString(py.PyExc_AttributeError(), msg.ptr);
+                            }
                             return -1;
                         };
+                    } else if (@typeInfo(RetType) == .optional) {
+                        if (T.__delattr__(self.getData(), attr_name) == null) {
+                            if (py.PyErr_Occurred() == null) {
+                                py.PyErr_SetString(py.PyExc_AttributeError(), "__delattr__ failed");
+                            }
+                            return -1;
+                        }
                     } else {
                         T.__delattr__(self.getData(), attr_name);
                     }

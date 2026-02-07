@@ -87,8 +87,19 @@ pub fn CallableProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 if (result) |value| {
                     return Conv.toPy(@TypeOf(value), value);
                 } else |err| {
-                    const msg = @errorName(err);
-                    py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                }
+            } else if (rt_info == .optional) {
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "__call__ returned null");
+                    }
                     return null;
                 }
             } else if (ReturnType == void) {

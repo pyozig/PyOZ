@@ -5,6 +5,15 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-02-07
+
+### Added
+- **Error union and optional return types in all dunder methods** - All magic methods (`__new__`, `__add__`, `__repr__`, `__len__`, `__call__`, `__eq__`, `__iter__`, `__get__`, `__setattr__`, etc.) now support three return conventions: plain `T` (always succeeds), `!T` (error union — Zig errors automatically become Python exceptions), and `?T` (optional — return `null` after calling `pyoz.raiseValueError()` etc.). Previously, only regular functions and a few protocol methods like `__getitem__` supported error unions. This enables raising exceptions from `__new__`, comparison operators, number protocol methods, and all other dunder methods.
+
+### Fixed
+- **Cross-compilation from Linux to macOS/Windows** - The PyPI wheel build (`build_wheels.py`) now downloads CPython headers at build time instead of using host Python's platform-specific headers. Previously, cross-compiling from Linux used the host's `pyconfig.h` (a Debian multiarch stub), which failed for non-Linux targets. The build script now extracts headers from the official CPython source tarball, stages the correct `pyconfig.h` per target (Unix LP64 or `PC/pyconfig.h` for Windows), and passes them to Zig via `-Dpython-headers-dir`.
+- **Windows .pyd crash on import** - Windows builds previously used `linker_allow_shlib_undefined` which left Python C API symbols as NULL pointers (Windows doesn't support lazy symbol resolution like Unix). The `.pyd` now links against a proper `python3.lib` import library generated at build time from CPython's `stable_abi.toml` using `zig dlltool`, so all `Py_*` symbols resolve correctly against `python3.dll` at load time.
+
 ## [0.10.1] - 2026-02-06
 
 ### Fixed

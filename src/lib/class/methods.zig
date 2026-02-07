@@ -399,6 +399,15 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                             }
                             return null;
                         }
+                    } else if (rt_info == .optional) {
+                        if (result) |value| {
+                            return Conv.toPy(@TypeOf(value), value);
+                        } else {
+                            if (py.PyErr_Occurred() == null) {
+                                py.PyErr_SetString(py.PyExc_RuntimeError(), "method returned null");
+                            }
+                            return null;
+                        }
                     } else if (ReturnType == void) {
                         return py.Py_RETURN_NONE();
                     } else {
@@ -494,6 +503,15 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                             if (py.PyErr_Occurred() == null) {
                                 const msg = @errorName(err);
                                 py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                            }
+                            return null;
+                        }
+                    } else if (rt_info == .optional) {
+                        if (result) |value| {
+                            return Conv.toPy(@TypeOf(value), value);
+                        } else {
+                            if (py.PyErr_Occurred() == null) {
+                                py.PyErr_SetString(py.PyExc_RuntimeError(), "method returned null");
                             }
                             return null;
                         }
@@ -595,6 +613,15 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                             if (py.PyErr_Occurred() == null) {
                                 const msg = @errorName(err);
                                 py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                            }
+                            return null;
+                        }
+                    } else if (rt_info == .optional) {
+                        if (result) |value| {
+                            return Conv.toPy(@TypeOf(value), value);
+                        } else {
+                            if (py.PyErr_Occurred() == null) {
+                                py.PyErr_SetString(py.PyExc_RuntimeError(), "method returned null");
                             }
                             return null;
                         }

@@ -31,6 +31,9 @@ htmlcov/
 .pytest_cache/
 
 
+# Downloaded CPython headers for cross-compilation
+pypi/python-headers/
+
 # zls
 .zls.json
 

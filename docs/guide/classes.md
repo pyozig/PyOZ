@@ -85,6 +85,22 @@ pub fn __new__(initial: i64, step: ?i64) Counter {
 
 Optional parameters (`?T`) become keyword arguments with `None` as default.
 
+`__new__` supports error union and optional return types for validation:
+
+```zig
+// Error union — Zig errors become Python exceptions automatically
+pub fn __new__(capacity: i64) !Ring {
+    if (capacity <= 0) return error.InvalidCapacity;
+    return .{ .capacity = capacity };
+}
+
+// Optional — raise a specific exception, then return null
+pub fn __new__(capacity: i64) ?Ring {
+    if (capacity <= 0) return pyoz.raiseValueError("capacity must be positive");
+    return .{ .capacity = capacity };
+}
+```
+
 ## Methods
 
 PyOZ auto-detects method types based on the first parameter:
@@ -112,6 +128,8 @@ All must be `[*:0]const u8` type.
 ## Magic Methods
 
 PyOZ supports Python's special methods. Define them as regular Zig functions with matching names.
+
+All magic methods support three return conventions: plain `T` (always succeeds), `!T` (error union — Zig errors automatically become Python exceptions), and `?T` (optional — raise an exception with `pyoz.raiseValueError()` etc., then return `null`). See [Error Handling in Magic Methods](errors.md#error-handling-in-magic-methods) for examples.
 
 ### Operators
 

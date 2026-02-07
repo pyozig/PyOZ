@@ -15,25 +15,86 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
     return struct {
         pub fn py_iter(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__iter__(self.getData());
-            const ResultType = @TypeOf(result);
+            const IterFn = @TypeOf(T.__iter__);
+            const IterRetType = @typeInfo(IterFn).@"fn".return_type.?;
+            const iter_rt_info = @typeInfo(IterRetType);
 
-            const result_info = @typeInfo(ResultType);
-            if (result_info == .pointer and result_info.pointer.child == T) {
-                py.Py_IncRef(self_obj);
-                return self_obj;
+            if (iter_rt_info == .error_union) {
+                const result = T.__iter__(self.getData()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                };
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .pointer and result_info.pointer.child == T) {
+                    py.Py_IncRef(self_obj);
+                    return self_obj;
+                } else {
+                    return Conv.toPy(ResultType, result);
+                }
+            } else if (iter_rt_info == .optional) {
+                if (T.__iter__(self.getData())) |result| {
+                    const ResultType = @TypeOf(result);
+                    const result_info = @typeInfo(ResultType);
+                    if (result_info == .pointer and result_info.pointer.child == T) {
+                        py.Py_IncRef(self_obj);
+                        return self_obj;
+                    } else {
+                        return Conv.toPy(ResultType, result);
+                    }
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "__iter__ returned null");
+                    }
+                    return null;
+                }
             } else {
-                return Conv.toPy(ResultType, result);
+                const result = T.__iter__(self.getData());
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .pointer and result_info.pointer.child == T) {
+                    py.Py_IncRef(self_obj);
+                    return self_obj;
+                } else {
+                    return Conv.toPy(ResultType, result);
+                }
             }
         }
 
         pub fn py_iternext(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-            const result = T.__next__(self.getData());
-            if (result) |value| {
-                return Conv.toPy(@TypeOf(value), value);
+            const NextFn = @TypeOf(T.__next__);
+            const NextRetType = @typeInfo(NextFn).@"fn".return_type.?;
+
+            if (@typeInfo(NextRetType) == .error_union) {
+                const result = T.__next__(self.getData()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                };
+                // Result is the payload of the error union, which should be optional
+                if (@typeInfo(@TypeOf(result)) == .optional) {
+                    if (result) |value| {
+                        return Conv.toPy(@TypeOf(value), value);
+                    } else {
+                        return null; // StopIteration
+                    }
+                } else {
+                    return Conv.toPy(@TypeOf(result), result);
+                }
             } else {
-                return null;
+                // Original behavior: __next__ returns ?T
+                const result = T.__next__(self.getData());
+                if (result) |value| {
+                    return Conv.toPy(@TypeOf(value), value);
+                } else {
+                    return null;
+                }
             }
         }
     };

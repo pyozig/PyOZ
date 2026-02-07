@@ -35,8 +35,30 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
 
         fn py_sq_length(self_obj: ?*py.PyObject) callconv(.c) py.Py_ssize_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            const result = T.__len__(self.getDataConst());
-            return @intCast(result);
+            const LenFn = @TypeOf(T.__len__);
+            const LenRetType = @typeInfo(LenFn).@"fn".return_type.?;
+            if (@typeInfo(LenRetType) == .error_union) {
+                const result = T.__len__(self.getDataConst()) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                };
+                return @intCast(result);
+            } else if (@typeInfo(LenRetType) == .optional) {
+                if (T.__len__(self.getDataConst())) |result| {
+                    return @intCast(result);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), "__len__ returned null");
+                    }
+                    return -1;
+                }
+            } else {
+                const result = T.__len__(self.getDataConst());
+                return @intCast(result);
+            }
         }
 
         /// Helper to convert index with Python-style negative wrapping for unsigned types
@@ -73,11 +95,22 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
 
             if (@typeInfo(GetItemRetType) == .error_union) {
                 const result = T.__getitem__(self.getDataConst(), idx) catch |err| {
-                    const msg = @errorName(err);
-                    py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                    }
                     return null;
                 };
                 return Conv.toPy(@TypeOf(result), result);
+            } else if (@typeInfo(GetItemRetType) == .optional) {
+                if (T.__getitem__(self.getDataConst(), idx)) |result| {
+                    return Conv.toPy(@TypeOf(result), result);
+                } else {
+                    if (py.PyErr_Occurred() == null) {
+                        py.PyErr_SetString(py.PyExc_IndexError(), "index out of range");
+                    }
+                    return null;
+                }
             } else {
                 const result = T.__getitem__(self.getDataConst(), idx);
                 return Conv.toPy(GetItemRetType, result);
@@ -96,8 +129,20 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 return 0;
             };
 
-            const result = T.__contains__(self.getDataConst(), elem);
-            return if (result) 1 else 0;
+            const ContainsRetType = fn_info.return_type.?;
+            if (@typeInfo(ContainsRetType) == .error_union) {
+                const result = T.__contains__(self.getDataConst(), elem) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return -1;
+                };
+                return if (result) 1 else 0;
+            } else {
+                const result = T.__contains__(self.getDataConst(), elem);
+                return if (result) 1 else 0;
+            }
         }
 
         fn py_sq_ass_item(self_obj: ?*py.PyObject, index: py.Py_ssize_t, value_obj: ?*py.PyObject) callconv(.c) c_int {
@@ -125,10 +170,19 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 const SetRetType = set_fn_info.return_type.?;
                 if (@typeInfo(SetRetType) == .error_union) {
                     T.__setitem__(self.getData(), idx, zig_value) catch |err| {
-                        const msg = @errorName(err);
-                        py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                        if (py.PyErr_Occurred() == null) {
+                            const msg = @errorName(err);
+                            py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                        }
                         return -1;
                     };
+                } else if (@typeInfo(SetRetType) == .optional) {
+                    if (T.__setitem__(self.getData(), idx, zig_value) == null) {
+                        if (py.PyErr_Occurred() == null) {
+                            py.PyErr_SetString(py.PyExc_IndexError(), "__setitem__ failed");
+                        }
+                        return -1;
+                    }
                 } else {
                     T.__setitem__(self.getData(), idx, zig_value);
                 }
@@ -149,10 +203,19 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 const DelRetType = del_fn_info.return_type.?;
                 if (@typeInfo(DelRetType) == .error_union) {
                     T.__delitem__(self.getData(), del_idx) catch |err| {
-                        const msg = @errorName(err);
-                        py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                        if (py.PyErr_Occurred() == null) {
+                            const msg = @errorName(err);
+                            py.PyErr_SetString(py.PyExc_IndexError(), msg.ptr);
+                        }
                         return -1;
                     };
+                } else if (@typeInfo(DelRetType) == .optional) {
+                    if (T.__delitem__(self.getData(), del_idx) == null) {
+                        if (py.PyErr_Occurred() == null) {
+                            py.PyErr_SetString(py.PyExc_IndexError(), "__delitem__ failed");
+                        }
+                        return -1;
+                    }
                 } else {
                     T.__delitem__(self.getData(), del_idx);
                 }

@@ -59,10 +59,26 @@ pub fn ComparisonProtocol(comptime T: type, comptime Parent: type, comptime clas
         }
 
         /// Call a comparison method, handling both same-type and cross-class cases.
+        /// Supports plain bool, !bool (error union), and ?bool (optional) returns.
         fn callCmp(comptime method_name: []const u8, self_data: *const T, other_obj: *py.PyObject) ?bool {
             const OtherType = getOtherParamType(method_name) orelse return null;
             const other = convertOther(OtherType, other_obj) orelse return null;
-            return @field(T, method_name)(self_data, other);
+            const CmpFn = @TypeOf(@field(T, method_name));
+            const CmpRetType = @typeInfo(CmpFn).@"fn".return_type.?;
+            if (@typeInfo(CmpRetType) == .error_union) {
+                const result = @field(T, method_name)(self_data, other) catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(py.PyExc_RuntimeError(), msg.ptr);
+                    }
+                    return null;
+                };
+                return result;
+            } else if (@typeInfo(CmpRetType) == .optional) {
+                return @field(T, method_name)(self_data, other);
+            } else {
+                return @field(T, method_name)(self_data, other);
+            }
         }
 
         pub fn py_richcompare(self_obj: ?*py.PyObject, other_obj: ?*py.PyObject, op: c_int) callconv(.c) ?*py.PyObject {
