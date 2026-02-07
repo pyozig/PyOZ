@@ -368,7 +368,7 @@ fn writeLocalBuildZigZon(
 const pyproject_template =
     \\[build-system]
     \\requires = ["pyoz"]
-    \\build-backend = "pyoz.build"
+    \\build-backend = "pyoz.backend"
     \\
     \\[project]
     \\name = "{[name]s}"

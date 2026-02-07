@@ -29,7 +29,7 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 };
                 const ResultType = @TypeOf(result);
                 const result_info = @typeInfo(ResultType);
-                if (result_info == .pointer and result_info.pointer.child == T) {
+                if (result_info == .pointer and result_info.pointer.size == .one and result_info.pointer.child == T) {
                     py.Py_IncRef(self_obj);
                     return self_obj;
                 } else {
@@ -39,7 +39,7 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 if (T.__iter__(self.getData())) |result| {
                     const ResultType = @TypeOf(result);
                     const result_info = @typeInfo(ResultType);
-                    if (result_info == .pointer and result_info.pointer.child == T) {
+                    if (result_info == .pointer and result_info.pointer.size == .one and result_info.pointer.child == T) {
                         py.Py_IncRef(self_obj);
                         return self_obj;
                     } else {
@@ -55,7 +55,7 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 const result = T.__iter__(self.getData());
                 const ResultType = @TypeOf(result);
                 const result_info = @typeInfo(ResultType);
-                if (result_info == .pointer and result_info.pointer.child == T) {
+                if (result_info == .pointer and result_info.pointer.size == .one and result_info.pointer.child == T) {
                     py.Py_IncRef(self_obj);
                     return self_obj;
                 } else {
