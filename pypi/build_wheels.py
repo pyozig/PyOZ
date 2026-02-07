@@ -320,6 +320,11 @@ def build_wheel(extension_path, ext, platform_tag, version, dist_dir):
         with open(main_path, "rb") as f:
             whl.writestr("pyoz/__main__.py", f.read())
 
+        # Add pyoz/backend.py (PEP 517 build backend)
+        backend_path = os.path.join(pypi_dir, "pyoz", "backend.py")
+        with open(backend_path, "rb") as f:
+            whl.writestr("pyoz/backend.py", f.read())
+
         # Add the native extension module
         with open(extension_path, "rb") as f:
             ext_data = f.read()

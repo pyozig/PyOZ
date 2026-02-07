@@ -364,9 +364,10 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                     const Conv = conversion.Converter(class_infos);
 
                     // Check if return type is pointer to T (return self pattern)
+                    // Only match single-item pointers (*T / *const T), not slices ([]T)
                     if (rt_info == .pointer) {
                         const ptr_info = rt_info.pointer;
-                        if (ptr_info.child == T) {
+                        if (ptr_info.size == .one and ptr_info.child == T) {
                             // Method returned *T or *const T - check if it's self
                             const result_ptr: *const T = if (ptr_info.is_const) result else result;
                             if (result_ptr == self_data) {
@@ -381,8 +382,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                         if (result) |value| {
                             const ValueType = @TypeOf(value);
                             const val_info = @typeInfo(ValueType);
-                            // Check for pointer to T in error union
-                            if (val_info == .pointer and val_info.pointer.child == T) {
+                            // Check for pointer to T in error union (single-item only, not slices)
+                            if (val_info == .pointer and val_info.pointer.size == .one and val_info.pointer.child == T) {
                                 const result_ptr: *const T = if (val_info.pointer.is_const) value else value;
                                 if (result_ptr == self_data) {
                                     py.Py_IncRef(self_obj);
