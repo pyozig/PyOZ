@@ -9,6 +9,7 @@
 const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
+const ref_mod = @import("../ref.zig");
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
@@ -85,13 +86,13 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
             return count;
         }
 
-        // Count public fields (excluding private fields starting with _)
+        // Count public fields (excluding private fields starting with _ and Ref fields)
         fn countPublicFields() usize {
             var count: usize = 0;
             for (fields) |field| {
-                if (!isPrivateField(field.name)) {
-                    count += 1;
-                }
+                if (isPrivateField(field.name)) continue;
+                if (ref_mod.isRefType(field.type)) continue;
+                count += 1;
             }
             return count;
         }
@@ -128,11 +129,13 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
         pub var getset: [total_getset_count]py.PyGetSetDef = blk: {
             var gs: [total_getset_count]py.PyGetSetDef = undefined;
 
-            // Field-based getters/setters (skip private fields starting with _)
+            // Field-based getters/setters (skip private fields starting with _ and Ref fields)
             var field_idx: usize = 0;
             for (fields) |field| {
                 // Skip private fields
                 if (isPrivateField(field.name)) continue;
+                // Skip Ref fields - they are internal references, not Python properties
+                if (ref_mod.isRefType(field.type)) continue;
 
                 gs[field_idx] = .{
                     .name = @ptrCast(field.name.ptr),

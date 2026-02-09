@@ -5,6 +5,12 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-02-09
+
+### Added
+- **`pyoz.Ref(T)` -- strong Python object references** - New generic type that allows one PyOZ-managed Zig struct to hold a strong reference to another Python object, preventing use-after-free when the referenced object is garbage collected. `Ref(T)` wraps a `?*PyObject` with automatic `Py_IncRef` on `set()` and `Py_DecRef` on `clear()` and object deallocation. Ref fields are automatically excluded from Python properties, `__init__` parameters, stub generation, and auto-doc signatures. Freelist-safe: references are released in `tp_dealloc` before freelist push, and `std.mem.zeroes` on pop ensures no double-free.
+- **`Module.selfObject(T, ptr)` helper** - Recovers the wrapping `*PyObject` from a `*const T` data pointer using compile-time offset math. Used to obtain the PyObject needed for `Ref(T).set()` from within methods that receive `self: *const T`.
+
 ## [0.10.4] - 2026-02-09
 
 ### Fixed

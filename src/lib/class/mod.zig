@@ -11,6 +11,7 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const abi = @import("../abi.zig");
 const slots = @import("../python/slots.zig");
+const ref_mod = @import("../ref.zig");
 
 // Sub-modules
 const wrapper_mod = @import("wrapper.zig");
@@ -235,6 +236,7 @@ fn generateAutoDoc(
         var first_sig = true;
         for (all_fields) |field| {
             if (isPrivateField(field.name)) continue;
+            if (ref_mod.isRefType(field.type)) continue;
             if (!first_sig) {
                 doc = doc ++ ", ";
             }
@@ -246,6 +248,7 @@ fn generateAutoDoc(
         // Build attribute list with types
         for (all_fields) |field| {
             if (isPrivateField(field.name)) continue;
+            if (ref_mod.isRefType(field.type)) continue;
             doc = doc ++ "    " ++ field.name ++ ": " ++ zigTypeToPythonName(field.type) ++ "\n";
         }
 
@@ -898,6 +901,15 @@ fn generateClass(comptime name: [*:0]const u8, comptime T: type, comptime class_
             const wrapper_ptr: *const PyWrapper = @ptrCast(@alignCast(obj));
             return wrapper_ptr.getDataConst();
         }
+
+        /// Recover the wrapping PyObject from a pointer to the embedded Zig data.
+        /// This is the inverse of unwrap/getData — given a *const T that lives inside
+        /// a PyWrapper._data_storage, returns the containing *PyObject.
+        pub fn objectFromData(data_ptr: *const T) *py.PyObject {
+            const data_addr = @intFromPtr(data_ptr);
+            const base_addr = data_addr - @offsetOf(PyWrapper, "_data_storage");
+            return @ptrFromInt(base_addr);
+        }
     };
 }
 
@@ -913,16 +925,30 @@ pub fn createSlotsTuple(comptime T: type) ?*py.PyObject {
     if (info != .@"struct") return null;
 
     const type_fields = info.@"struct".fields;
-    const tuple = py.PyTuple_New(@intCast(type_fields.len)) orelse return null;
 
-    inline for (type_fields, 0..) |field, i| {
-        const name_str = py.PyUnicode_FromString(@ptrCast(field.name.ptr)) orelse {
-            py.Py_DecRef(tuple);
-            return null;
-        };
-        if (py.PyTuple_SetItem(tuple, @intCast(i), name_str) < 0) {
-            py.Py_DecRef(tuple);
-            return null;
+    // Count fields excluding Ref types
+    const slot_count = comptime blk: {
+        var count: usize = 0;
+        for (type_fields) |field| {
+            if (!ref_mod.isRefType(field.type)) count += 1;
+        }
+        break :blk count;
+    };
+
+    const tuple = py.PyTuple_New(@intCast(slot_count)) orelse return null;
+
+    comptime var idx: usize = 0;
+    inline for (type_fields) |field| {
+        if (comptime !ref_mod.isRefType(field.type)) {
+            const name_str = py.PyUnicode_FromString(@ptrCast(field.name.ptr)) orelse {
+                py.Py_DecRef(tuple);
+                return null;
+            };
+            if (py.PyTuple_SetItem(tuple, @intCast(idx), name_str) < 0) {
+                py.Py_DecRef(tuple);
+                return null;
+            }
+            idx += 1;
         }
     }
 

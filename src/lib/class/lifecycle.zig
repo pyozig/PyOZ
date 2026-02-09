@@ -9,6 +9,7 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const abi = @import("../abi.zig");
+const ref_mod = @import("../ref.zig");
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
@@ -33,13 +34,13 @@ pub fn LifecycleBuilder(
     const struct_info = @typeInfo(T).@"struct";
     const fields = struct_info.fields;
 
-    // Count public fields (excluding private fields starting with _)
+    // Count public fields (excluding private fields starting with _ and Ref fields)
     const public_field_count = comptime blk: {
         var count: usize = 0;
         for (fields) |field| {
-            if (!isPrivateField(field.name)) {
-                count += 1;
-            }
+            if (isPrivateField(field.name)) continue;
+            if (ref_mod.isRefType(field.type)) continue;
+            count += 1;
         }
         break :blk count;
     };
@@ -146,6 +147,8 @@ pub fn LifecycleBuilder(
             inline for (fields) |field| {
                 // Skip private fields - they remain zero-initialized from py_new
                 if (comptime isPrivateField(field.name)) continue;
+                // Skip Ref fields - they are managed internally, not via __init__
+                if (comptime ref_mod.isRefType(field.type)) continue;
 
                 const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse {
                     py.PyErr_SetString(py.PyExc_TypeError(), "Failed to get argument");
@@ -257,6 +260,13 @@ pub fn LifecycleBuilder(
                 if (self.getDict()) |dict| {
                     py.Py_DecRef(dict);
                     self.setDict(null);
+                }
+            }
+
+            // Release all Ref(T) fields before freelist push or object free
+            inline for (fields) |field| {
+                if (comptime ref_mod.isRefType(field.type)) {
+                    @field(self.getData().*, field.name).clear();
                 }
             }
 

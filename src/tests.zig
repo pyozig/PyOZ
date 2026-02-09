@@ -3328,6 +3328,167 @@ test "interruptible_sum - correct result for larger n" {
 // ============================================================================
 // Symreader Tests - Binary Format Parsing
 // ============================================================================
+// Ref(T) — Strong cross-object references
+// ============================================================================
+
+test "Ref - basic: child holds reference to owner, can read owner value" {
+    const python = try initTestPython();
+
+    try python.exec("o = example.Owner(42)");
+    try python.exec("c = example.make_ref_child(o, 1)");
+
+    // Child can access owner's value through the Ref
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "c.get_owner_value()"));
+    try std.testing.expect(try python.eval(bool, "c.has_owner()"));
+    try std.testing.expectEqual(@as(i64, 1), try python.eval(i64, "c.tag"));
+}
+
+test "Ref - owner stays alive while child holds reference" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\import sys
+        \\o = example.Owner(99)
+        \\c = example.make_ref_child(o, 2)
+        \\rc_before = sys.getrefcount(o)
+        \\del o
+        \\# Owner should still be alive — child holds a Ref
+        \\val = c.get_owner_value()
+    );
+    try std.testing.expectEqual(@as(i64, 99), try python.eval(i64, "val"));
+}
+
+test "Ref - owner refcount increases when child is created" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\import sys
+        \\o = example.Owner(10)
+        \\rc1 = sys.getrefcount(o)
+        \\c = example.make_ref_child(o, 1)
+        \\rc2 = sys.getrefcount(o)
+    );
+    // After creating child, refcount should be higher
+    const rc1 = try python.eval(i64, "rc1");
+    const rc2 = try python.eval(i64, "rc2");
+    try std.testing.expect(rc2 > rc1);
+}
+
+test "Ref - owner refcount decreases when child is deleted" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\import sys
+        \\o = example.Owner(10)
+        \\c = example.make_ref_child(o, 1)
+        \\rc_with_child = sys.getrefcount(o)
+        \\del c
+        \\rc_without_child = sys.getrefcount(o)
+    );
+    const rc_with = try python.eval(i64, "rc_with_child");
+    const rc_without = try python.eval(i64, "rc_without_child");
+    try std.testing.expect(rc_with > rc_without);
+}
+
+test "Ref - multiple children keep owner alive" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\o = example.Owner(77)
+        \\c1 = example.make_ref_child(o, 1)
+        \\c2 = example.make_ref_child(o, 2)
+        \\c3 = example.make_ref_child(o, 3)
+        \\del o
+        \\# All children still see the owner
+        \\v1 = c1.get_owner_value()
+        \\v2 = c2.get_owner_value()
+        \\v3 = c3.get_owner_value()
+    );
+    try std.testing.expectEqual(@as(i64, 77), try python.eval(i64, "v1"));
+    try std.testing.expectEqual(@as(i64, 77), try python.eval(i64, "v2"));
+    try std.testing.expectEqual(@as(i64, 77), try python.eval(i64, "v3"));
+}
+
+test "Ref - child without owner returns None from get_owner_value" {
+    const python = try initTestPython();
+
+    // RefChild created via __init__ has no owner set (Ref is null)
+    try python.exec("c = example.RefChild(1)");
+    try std.testing.expect(try python.eval(bool, "c.get_owner_value() is None"));
+    try std.testing.expect(try python.eval(bool, "not c.has_owner()"));
+}
+
+test "Ref - freelist: ref is properly cleared on dealloc" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\import sys
+        \\o = example.Owner(55)
+        \\# Create and destroy children — they go to freelist
+        \\for i in range(8):
+        \\    c = example.make_ref_child_freelist(o, i)
+        \\    del c
+        \\# Owner refcount should be back to baseline (only 'o' holds it)
+        \\rc = sys.getrefcount(o)
+    );
+    // sys.getrefcount adds 1 for the argument itself, so baseline is 2
+    try std.testing.expectEqual(@as(i64, 2), try python.eval(i64, "rc"));
+}
+
+test "Ref - freelist: reused object works correctly with new ref" {
+    const python = try initTestPython();
+
+    try python.exec(
+        \\o1 = example.Owner(11)
+        \\o2 = example.Owner(22)
+        \\# Create child with o1, destroy it (goes to freelist)
+        \\c = example.make_ref_child_freelist(o1, 1)
+        \\del c
+        \\# Create child with o2 (reuses from freelist)
+        \\c2 = example.make_ref_child_freelist(o2, 2)
+        \\val = c2.get_owner_value()
+    );
+    // The reused child should reference o2, not o1
+    try std.testing.expectEqual(@as(i64, 22), try python.eval(i64, "val"));
+}
+
+test "Ref - init exclusion: RefChild __init__ only takes tag, not the Ref field" {
+    const python = try initTestPython();
+
+    // RefChild has fields: _owner (Ref, skipped), tag (public)
+    // __init__ should only accept tag
+    try python.exec("c = example.RefChild(42)");
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "c.tag"));
+}
+
+test "Ref - init exclusion: RefChildPublic __init__ only takes tag, not the Ref field" {
+    const python = try initTestPython();
+
+    // RefChildPublic has fields: owner_ref (Ref, skipped even though public), tag (public)
+    // __init__ should only accept tag
+    try python.exec("c = example.RefChildPublic(99)");
+    try std.testing.expectEqual(@as(i64, 99), try python.eval(i64, "c.tag"));
+}
+
+test "Ref - property exclusion: Ref field does not appear as Python attribute" {
+    const python = try initTestPython();
+
+    // _owner is private + Ref — should not be accessible
+    try python.exec("c = example.RefChild(1)");
+    try std.testing.expect(try python.eval(bool, "not hasattr(c, '_owner')"));
+}
+
+test "Ref - property exclusion: public Ref field does not appear as Python attribute" {
+    const python = try initTestPython();
+
+    // owner_ref is public but Ref — should still not be accessible as a property
+    try python.exec("c = example.RefChildPublic(1)");
+    try std.testing.expect(try python.eval(bool, "not hasattr(c, 'owner_ref')"));
+}
+
+// ============================================================================
+// Symreader Tests
+// ============================================================================
 
 const symreader = @import("symreader");
 const test_config = @import("test_config");
