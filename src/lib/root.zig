@@ -164,6 +164,14 @@ const gc_mod = @import("gc.zig");
 pub const GCVisitor = gc_mod.GCVisitor;
 
 // =============================================================================
+// Strong object references
+// =============================================================================
+
+const ref_mod = @import("ref.zig");
+pub const Ref = ref_mod.Ref;
+pub const isRefType = ref_mod.isRefType;
+
+// =============================================================================
 // GIL Control
 // =============================================================================
 
@@ -812,6 +820,21 @@ pub fn module(comptime config: anytype) type {
         pub const ClassConverter = conversion_mod.Converter(class_infos);
         pub const toPy = ClassConverter.toPy;
         pub const fromPy = ClassConverter.fromPy;
+
+        /// Recover the wrapping PyObject from a `self: *const T` pointer.
+        /// Use this to get the PyObject for setting Ref fields:
+        ///     node._parser.set(Module.selfObject(GrammarParser, self));
+        pub fn selfObject(comptime T: type, ptr: *const T) *PyObject {
+            const Wrapper = class_mod.getWrapperWithName(comptime getClassNameForType(T), T, class_infos);
+            return Wrapper.objectFromData(ptr);
+        }
+
+        fn getClassNameForType(comptime T: type) [*:0]const u8 {
+            inline for (class_infos) |info| {
+                if (info.zig_type == T) return info.name;
+            }
+            @compileError("selfObject: type " ++ @typeName(T) ++ " is not a registered class");
+        }
 
         /// Generate Python type stub (.pyi) content for this module
         /// Returns the complete stub file content as a comptime string

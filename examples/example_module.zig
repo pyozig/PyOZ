@@ -2794,6 +2794,99 @@ const Line = struct {
 };
 
 // ============================================================================
+// Test: pyoz.Ref(T) — strong cross-object references
+// ============================================================================
+
+/// Owner class — holds a value that RefChild references
+const Owner = struct {
+    value: i64,
+
+    pub fn get_value(self: *const Owner) i64 {
+        return self.value;
+    }
+
+    pub fn __repr__(self: *const Owner) []const u8 {
+        _ = self;
+        return "Owner(...)";
+    }
+};
+
+/// Child class that holds a Ref to its Owner.
+/// The Ref keeps the Owner alive as long as the Child exists.
+const RefChild = struct {
+    _owner: pyoz.Ref(Owner),
+    tag: i64,
+
+    pub fn get_owner_value(self: *const RefChild) ?i64 {
+        const owner = self._owner.get(Example.registered_classes) orelse return null;
+        return owner.value;
+    }
+
+    pub fn has_owner(self: *const RefChild) bool {
+        return self._owner.object() != null;
+    }
+
+    pub fn __repr__(self: *const RefChild) []const u8 {
+        _ = self;
+        return "RefChild(...)";
+    }
+};
+
+/// Function to create a RefChild that holds a reference to an Owner.
+/// This is the typical pattern: a function/method receives `*const Owner`
+/// (which is a pointer into the PyWrapper), and uses selfObject to get
+/// the PyObject for INCREF.
+fn make_ref_child(owner: *const Owner, tag: i64) RefChild {
+    var child = RefChild{ .tag = tag, ._owner = .{} };
+    child._owner.set(Example.selfObject(Owner, owner));
+    return child;
+}
+
+/// Child class with freelist — tests that Ref is properly cleared on freelist push
+const RefChildFreelist = struct {
+    _owner: pyoz.Ref(Owner),
+    tag: i64,
+
+    const __freelist__ = 4;
+
+    pub fn get_owner_value(self: *const RefChildFreelist) ?i64 {
+        const owner = self._owner.get(Example.registered_classes) orelse return null;
+        return owner.value;
+    }
+
+    pub fn has_owner(self: *const RefChildFreelist) bool {
+        return self._owner.object() != null;
+    }
+
+    pub fn __repr__(self: *const RefChildFreelist) []const u8 {
+        _ = self;
+        return "RefChildFreelist(...)";
+    }
+};
+
+/// Function to create a RefChildFreelist
+fn make_ref_child_freelist(owner: *const Owner, tag: i64) RefChildFreelist {
+    var child = RefChildFreelist{ .tag = tag, ._owner = .{} };
+    child._owner.set(Example.selfObject(Owner, owner));
+    return child;
+}
+
+/// Child class with a PUBLIC Ref field (no underscore) — tests property exclusion
+const RefChildPublic = struct {
+    owner_ref: pyoz.Ref(Owner),
+    tag: i64,
+
+    pub fn has_owner(self: *const RefChildPublic) bool {
+        return self.owner_ref.object() != null;
+    }
+
+    pub fn __repr__(self: *const RefChildPublic) []const u8 {
+        _ = self;
+        return "RefChildPublic(...)";
+    }
+};
+
+// ============================================================================
 // Test: raiseRuntimeError without inline (user bug report)
 // ============================================================================
 
@@ -2949,6 +3042,9 @@ const Example = pyoz.module(.{
         // Test: raise* functions without inline (user bug report)
         pyoz.func("test_raise_runtime", test_raise_runtime, "Test raiseRuntimeError one-liner pattern"),
         pyoz.func("test_raise_discard", test_raise_discard, "Test raiseValueError discard pattern"),
+        // Ref(T) test functions
+        pyoz.func("make_ref_child", make_ref_child, "Create a RefChild holding a Ref to an Owner"),
+        pyoz.func("make_ref_child_freelist", make_ref_child_freelist, "Create a RefChildFreelist holding a Ref to an Owner"),
     },
     .classes = &.{
         pyoz.class("Point", Point),
@@ -2980,6 +3076,10 @@ const Example = pyoz.module(.{
         pyoz.class("Resource", Resource),
         pyoz.class("FlexPoint", FlexPoint),
         pyoz.class("Line", Line),
+        pyoz.class("Owner", Owner),
+        pyoz.class("RefChild", RefChild),
+        pyoz.class("RefChildFreelist", RefChildFreelist),
+        pyoz.class("RefChildPublic", RefChildPublic),
     },
     .exceptions = &.{
         pyoz.exception("ValidationError", .{ .doc = "Raised when validation fails", .base = .ValueError }),

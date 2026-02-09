@@ -13,6 +13,7 @@
 //! - `pub const method__params__: []const u8 = "..."` — override parameter names (comma-separated)
 
 const std = @import("std");
+const ref_mod = @import("ref.zig");
 
 /// Check if a field name indicates a private field (starts with underscore)
 /// Private fields are not exposed to Python as properties or __init__ arguments
@@ -431,8 +432,9 @@ fn detectImportsForClass(comptime T: type) ImportFlags {
     const struct_info = @typeInfo(T).@"struct";
     var flags = ImportFlags{};
 
-    // Check fields
+    // Check fields (skip Ref fields — they are internal references)
     for (struct_info.fields) |field| {
+        if (ref_mod.isRefType(field.type)) continue;
         const field_flags = detectImportsForType(field.type);
         flags.datetime = flags.datetime or field_flags.datetime;
         flags.decimal = flags.decimal or field_flags.decimal;
@@ -573,10 +575,11 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
             result = result ++ "    \"\"\"" ++ asSlice(@field(T, "__doc__")) ++ "\"\"\"\n";
         }
 
-        // Fields as class-level annotations (skip private fields starting with _)
+        // Fields as class-level annotations (skip private and Ref fields)
         var has_public_fields = false;
         for (fields) |field| {
             if (isPrivateField(field.name)) continue;
+            if (ref_mod.isRefType(field.type)) continue;
             result = result ++ "    " ++ field.name ++ ": " ++ zigTypeToPython(field.type) ++ "\n";
             has_public_fields = true;
         }
@@ -585,10 +588,11 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
             result = result ++ "\n";
         }
 
-        // __init__ method (skip private fields starting with _)
+        // __init__ method (skip private and Ref fields)
         result = result ++ "    def __init__(self";
         for (fields) |field| {
             if (isPrivateField(field.name)) continue;
+            if (ref_mod.isRefType(field.type)) continue;
             result = result ++ ", " ++ field.name ++ ": " ++ zigTypeToPython(field.type);
         }
         result = result ++ ") -> None: ...\n\n";
