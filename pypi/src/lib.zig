@@ -1,12 +1,11 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const pyoz = @import("PyOZ");
 const version = @import("version");
 
 const project = @import("project.zig");
 const builder = @import("builder.zig");
+const commands = @import("commands.zig");
 const wheel = @import("wheel.zig");
-const symreader = @import("symreader.zig");
 
 fn init_project(name: ?[]const u8, in_current_dir: ?bool, local_pyoz_path: ?[]const u8, package_layout: ?bool) !void {
     try project.create(std.heap.page_allocator, name, in_current_dir orelse false, local_pyoz_path, package_layout orelse false);
@@ -29,137 +28,22 @@ fn publish_wheels(test_pypi: ?bool) !void {
 }
 
 fn run_tests(release: ?bool, verbose: ?bool) !void {
-    const alloc = std.heap.page_allocator;
-    const rel = release orelse false;
-    const verb = verbose orelse false;
-
-    // Build the module
-    var build_result = try builder.buildModule(alloc, rel);
-    defer build_result.deinit(alloc);
-
-    // Extract tests from the compiled module
-    const test_content = try symreader.extractTests(alloc, build_result.module_path);
-    if (test_content == null or test_content.?.len == 0) {
-        std.debug.print("\nNo tests found in module.\n", .{});
-        std.debug.print("Add .tests to your pyoz.module() config:\n\n", .{});
-        std.debug.print("  .tests = &.{{\n", .{});
-        std.debug.print("      pyoz.@\"test\"(\"my test\",\n", .{});
-        std.debug.print("          \\\\assert mymod.add(2, 3) == 5\n", .{});
-        std.debug.print("      ),\n", .{});
-        std.debug.print("  }},\n", .{});
-        return;
+    var args_buf: [2][]const u8 = undefined;
+    var args_len: usize = 0;
+    if (release orelse false) {
+        args_buf[args_len] = "--release";
+        args_len += 1;
     }
-    defer alloc.free(test_content.?);
-
-    // Write test file
-    const test_file = "zig-out/lib/__pyoz_test.py";
-    {
-        const f = try std.fs.cwd().createFile(test_file, .{});
-        defer f.close();
-        try f.writeAll(test_content.?);
+    if (verbose orelse false) {
+        args_buf[args_len] = "--verbose";
+        args_len += 1;
     }
-
-    std.debug.print("\nRunning tests...\n\n", .{});
-
-    const python_cmd = builder.getPythonCommand();
-    const path_sep = if (builtin.os.tag == .windows) ";" else ":";
-
-    const existing_pp = std.process.getEnvVarOwned(alloc, "PYTHONPATH") catch "";
-    defer if (existing_pp.len > 0) alloc.free(existing_pp);
-
-    const new_pp = if (existing_pp.len > 0)
-        try std.fmt.allocPrint(alloc, "zig-out/lib{s}{s}", .{ path_sep, existing_pp })
-    else
-        try alloc.dupe(u8, "zig-out/lib");
-    defer alloc.free(new_pp);
-
-    var argv_buf: [6][]const u8 = undefined;
-    var argc: usize = 0;
-    argv_buf[argc] = python_cmd;
-    argc += 1;
-    argv_buf[argc] = "-m";
-    argc += 1;
-    argv_buf[argc] = "unittest";
-    argc += 1;
-    argv_buf[argc] = test_file;
-    argc += 1;
-    if (verb) {
-        argv_buf[argc] = "-v";
-        argc += 1;
-    }
-
-    var env_map = try std.process.getEnvMap(alloc);
-    defer env_map.deinit();
-    try env_map.put("PYTHONPATH", new_pp);
-
-    var child = std.process.Child.init(argv_buf[0..argc], alloc);
-    child.env_map = &env_map;
-    child.stderr_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-
-    const term = try child.spawnAndWait();
-    if (term.Exited != 0) {
-        std.process.exit(1);
-    }
+    try commands.runTests(std.heap.page_allocator, args_buf[0..args_len]);
 }
 
 fn run_bench() !void {
-    const alloc = std.heap.page_allocator;
-
-    // Always build in release mode for benchmarks
-    var build_result = try builder.buildModule(alloc, true);
-    defer build_result.deinit(alloc);
-
-    // Extract benchmarks from the compiled module
-    const bench_content = try symreader.extractBenchmarks(alloc, build_result.module_path);
-    if (bench_content == null or bench_content.?.len == 0) {
-        std.debug.print("\nNo benchmarks found in module.\n", .{});
-        std.debug.print("Add .benchmarks to your pyoz.module() config:\n\n", .{});
-        std.debug.print("  .benchmarks = &.{{\n", .{});
-        std.debug.print("      pyoz.bench(\"my benchmark\",\n", .{});
-        std.debug.print("          \\\\mymod.add(100, 200)\n", .{});
-        std.debug.print("      ),\n", .{});
-        std.debug.print("  }},\n", .{});
-        return;
-    }
-    defer alloc.free(bench_content.?);
-
-    // Write benchmark file
-    const bench_file = "zig-out/lib/__pyoz_bench.py";
-    {
-        const f = try std.fs.cwd().createFile(bench_file, .{});
-        defer f.close();
-        try f.writeAll(bench_content.?);
-    }
-
-    std.debug.print("\nRunning benchmarks...\n", .{});
-
-    const python_cmd = builder.getPythonCommand();
-    const path_sep = if (builtin.os.tag == .windows) ";" else ":";
-
-    const existing_pp = std.process.getEnvVarOwned(alloc, "PYTHONPATH") catch "";
-    defer if (existing_pp.len > 0) alloc.free(existing_pp);
-
-    const new_pp = if (existing_pp.len > 0)
-        try std.fmt.allocPrint(alloc, "zig-out/lib{s}{s}", .{ path_sep, existing_pp })
-    else
-        try alloc.dupe(u8, "zig-out/lib");
-    defer alloc.free(new_pp);
-
-    var env_map = try std.process.getEnvMap(alloc);
-    defer env_map.deinit();
-    try env_map.put("PYTHONPATH", new_pp);
-
-    const argv = [_][]const u8{ python_cmd, bench_file };
-    var child = std.process.Child.init(&argv, alloc);
-    child.env_map = &env_map;
-    child.stderr_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-
-    const term = try child.spawnAndWait();
-    if (term.Exited != 0) {
-        std.process.exit(1);
-    }
+    const args = [_][]const u8{};
+    try commands.runBench(std.heap.page_allocator, &args);
 }
 
 fn get_version() []const u8 {
