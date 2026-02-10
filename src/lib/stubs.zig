@@ -21,6 +21,27 @@ fn isPrivateField(comptime name: []const u8) bool {
     return name.len > 0 and name[0] == '_';
 }
 
+/// Check if a declaration is a get_X/set_X used as a property accessor.
+fn isPropertyAccessor(comptime T: type, comptime decl_name: []const u8) bool {
+    const fields = @typeInfo(T).@"struct".fields;
+    // get_X is a property getter if it's a function
+    if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "get_")) {
+        if (@typeInfo(@TypeOf(@field(T, decl_name))) == .@"fn") return true;
+    }
+    // set_X is a property setter if get_X exists as a function, or X is a struct field
+    if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "set_")) {
+        if (@typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn") return false;
+        const prop_name = decl_name[4..];
+        if (@hasDecl(T, "get_" ++ prop_name)) {
+            if (@typeInfo(@TypeOf(@field(T, "get_" ++ prop_name))) == .@"fn") return true;
+        }
+        for (fields) |field| {
+            if (std.mem.eql(u8, field.name, prop_name)) return true;
+        }
+    }
+    return false;
+}
+
 /// Coerce a comptime string declaration to []const u8.
 /// Handles string literals (*const [N:0]u8), [*:0]const u8, and []const u8.
 fn asSlice(comptime val: anytype) []const u8 {
@@ -630,6 +651,9 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
             if (std.mem.endsWith(u8, decl.name, "__doc__")) continue;
             if (std.mem.endsWith(u8, decl.name, "__returns__")) continue;
             if (std.mem.endsWith(u8, decl.name, "__params__")) continue;
+
+            // Skip get_X/set_X that are used as property getters/setters
+            if (isPropertyAccessor(T, decl.name)) continue;
 
             const decl_value = @field(T, decl.name);
             const DeclType = @TypeOf(decl_value);

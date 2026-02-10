@@ -39,3 +39,6 @@ pypi/python-headers/
 
 # MkDocs
 site/
+
+# Local scripts
+bump_version.sh

@@ -247,6 +247,7 @@ pub const PyType_GenericNew = type_ops.PyType_GenericNew;
 // ============================================================================
 
 pub const PyModule_Create = module_ops.PyModule_Create;
+pub const PyModuleDef_Init = module_ops.PyModuleDef_Init;
 pub const PyModule_AddObject = module_ops.PyModule_AddObject;
 pub const PyModule_AddIntConstant = module_ops.PyModule_AddIntConstant;
 pub const PyModule_AddStringConstant = module_ops.PyModule_AddStringConstant;

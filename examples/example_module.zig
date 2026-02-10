@@ -2941,9 +2941,17 @@ fn test_fmt_raise(value: i64, limit: i64) ?i64 {
 // Module Definition
 // ============================================================================
 
+/// Post-init callback: add submodules to the module
+fn setupSubmodules(module: *pyoz.PyObject) callconv(.c) c_int {
+    const mod = pyoz.Module{ .ptr = module };
+    _ = mod.createSubmodule("math", "Mathematical utility functions", &math_methods) catch return -1;
+    return 0;
+}
+
 const Example = pyoz.module(.{
     .name = "example",
     .doc = "Example PyOZ module - Python bindings for Zig made easy!",
+    .module_init = &setupSubmodules,
     .funcs = &.{
         pyoz.func("add", add, "Add two integers"),
         pyoz.func("multiply", multiply, "Multiply two floats"),
@@ -3201,12 +3209,5 @@ var math_methods = [_]pyoz.PyMethodDef{
 
 /// Module initialization - this is the only boilerplate needed!
 pub export fn PyInit_example() ?*pyoz.PyObject {
-    // Create main module
-    const module = Example.init() orelse return null;
-    const mod = pyoz.Module{ .ptr = module };
-
-    // Create and add 'math' submodule
-    _ = mod.createSubmodule("math", "Mathematical utility functions", &math_methods) catch return null;
-
-    return module;
+    return Example.init();
 }

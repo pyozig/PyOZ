@@ -46,6 +46,11 @@ pub inline fn PyModule_AddType(module: *PyObject, type_obj: *PyTypeObject) c_int
     }
 }
 
+/// Initialize a module definition for multi-phase initialization (PEP 489)
+pub inline fn PyModuleDef_Init(def: *PyModuleDef) ?*PyObject {
+    return c.PyModuleDef_Init(def);
+}
+
 /// Get the dictionary of a module
 pub inline fn PyModule_GetDict(module: *PyObject) ?*PyObject {
     return c.PyModule_GetDict(module);

@@ -69,9 +69,33 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
             return countMethods() + countStaticMethods() + countClassMethods() + (if (has_class_getitem) @as(usize, 1) else 0);
         }
 
+        fn isComputedProperty(comptime decl_name: []const u8) bool {
+            // get_X is a property getter (computed or field override) if it's a function
+            if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "get_")) {
+                if (@typeInfo(@TypeOf(@field(T, decl_name))) == .@"fn") return true;
+            }
+            // set_X is a property setter if get_X exists as a function, or X is a struct field
+            if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "set_")) {
+                if (@typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn") return false;
+                const prop_name = decl_name[4..];
+                // Check if matching getter exists
+                if (@hasDecl(T, "get_" ++ prop_name)) {
+                    if (@typeInfo(@TypeOf(@field(T, "get_" ++ prop_name))) == .@"fn") return true;
+                }
+                // Check if it's a field setter override
+                const fields = @typeInfo(T).@"struct".fields;
+                for (fields) |field| {
+                    if (std.mem.eql(u8, field.name, prop_name)) return true;
+                }
+            }
+            return false;
+        }
+
         fn isInstanceMethod(comptime decl_name: []const u8) bool {
             // Skip dunders handled by protocol slots
             if (isSlotDunder(decl_name)) return false;
+            // Skip get_X/set_X used as property getters/setters
+            if (isComputedProperty(decl_name)) return false;
             // Check if this is a public function that takes self
             if (!@hasDecl(T, decl_name)) return false;
             const decl = @field(T, decl_name);

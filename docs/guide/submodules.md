@@ -4,17 +4,24 @@ PyOZ supports creating nested module structures, allowing you to organize your A
 
 ## Creating Submodules
 
-Use `mod.createSubmodule()` during module initialization:
+Use `.module_init` to add submodules during module initialization:
 
 ```zig
-pub export fn PyInit_mymodule() ?*pyoz.PyObject {
-    const module = MyModule.init() orelse return null;
+fn setupSubmodules(module: *pyoz.PyObject) callconv(.c) c_int {
     const mod = pyoz.Module{ .ptr = module };
+    _ = mod.createSubmodule("math", "Math utilities", &math_methods) catch return -1;
+    _ = mod.createSubmodule("io", "I/O utilities", &io_methods) catch return -1;
+    return 0;
+}
 
-    _ = mod.createSubmodule("math", "Math utilities", &math_methods) catch return null;
-    _ = mod.createSubmodule("io", "I/O utilities", &io_methods) catch return null;
+const MyModule = pyoz.module(.{
+    .name = "mymodule",
+    .module_init = &setupSubmodules,
+    // ...
+});
 
-    return module;
+pub export fn PyInit_mymodule() ?*pyoz.PyObject {
+    return MyModule.init();
 }
 ```
 
@@ -81,16 +88,20 @@ var math_methods = [_]pyoz.PyMethodDef{
     pyoz.methodDefSentinel(),
 };
 
+fn setupSubmodules(module: *pyoz.PyObject) callconv(.c) c_int {
+    const mod = pyoz.Module{ .ptr = module };
+    _ = mod.createSubmodule("math", "Math functions", &math_methods) catch return -1;
+    return 0;
+}
+
 const MyLib = pyoz.module(.{
     .name = "mylib",
+    .module_init = &setupSubmodules,
     .funcs = &.{ pyoz.func("version", version, "Get version") },
 });
 
 pub export fn PyInit_mylib() ?*pyoz.PyObject {
-    const module = MyLib.init() orelse return null;
-    const mod = pyoz.Module{ .ptr = module };
-    _ = mod.createSubmodule("math", "Math functions", &math_methods) catch return null;
-    return module;
+    return MyLib.init();
 }
 ```
 

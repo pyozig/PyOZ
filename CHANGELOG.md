@@ -5,6 +5,14 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-02-10
+
+### Added
+- **Multi-phase module initialization (PEP 489)** - PyOZ now uses `PyModuleDef_Init` + `Py_mod_exec` slot instead of the legacy `PyModule_Create` single-phase init. This is required for sub-interpreter support (PEP 554) and is the modern standard for Python extension modules. Simple modules (`return Module.init()`) work unchanged. Modules that need post-init work (e.g., adding submodules) should use the new `.module_init` callback in the module config instead of doing work after `init()` in `PyInit_*`.
+
+### Fixed
+- **`get_X`/`set_X` computed properties no longer exposed as methods** - When a class defines `get_user_data()` and `set_user_data()`, PyOZ correctly creates a `user_data` property but previously also exposed `get_user_data()` and `set_user_data()` as callable methods, cluttering the API. Now computed property accessors are filtered from the method table (`methods.zig`) and stub generation (`stubs.zig`), so only the `X` property appears in Python. The filter correctly handles: `get_X` as computed property getter, `set_X` with matching `get_X` as computed property setter, and `set_X` as field setter override. Standalone `set_X` without a matching getter or field is still exposed as a method.
+
 ## [0.11.0] - 2026-02-09
 
 ### Added

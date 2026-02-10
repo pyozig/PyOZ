@@ -812,64 +812,64 @@ test "Number - creation" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(42.5)");
-    try std.testing.expectApproxEqAbs(@as(f64, 42.5), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.5), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __add__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(10) + example.Number(5)");
-    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __sub__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(10) - example.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 7.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 7.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __mul__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(6) * example.Number(7)");
-    try std.testing.expectApproxEqAbs(@as(f64, 42.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __truediv__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(10) / example.Number(4)");
-    try std.testing.expectApproxEqAbs(@as(f64, 2.5), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __floordiv__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(10) // example.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __mod__" {
     const python = try initTestPython();
 
     try python.exec("n = example.Number(10) % example.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __divmod__" {
     const python = try initTestPython();
 
     try python.exec("q, r = divmod(example.Number(17), example.Number(5))");
-    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "q.get_value()"), 0.0001);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "r.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "q.value"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "r.value"), 0.0001);
 }
 
 test "Number - __neg__" {
     const python = try initTestPython();
 
     try python.exec("n = -example.Number(42)");
-    try std.testing.expectApproxEqAbs(@as(f64, -42.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, -42.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "Number - __eq__" {
@@ -900,7 +900,7 @@ test "Timer - creation" {
     const python = try initTestPython();
 
     try python.exec("t = example.Timer('test')");
-    try std.testing.expect(try python.eval(bool, "'test' in t.get_name()"));
+    try std.testing.expect(try python.eval(bool, "'test' in t.name"));
 }
 
 test "Timer - context manager protocol" {
@@ -911,7 +911,7 @@ test "Timer - context manager protocol" {
         \\    t.tick()
         \\    t.tick()
         \\    t.tick()
-        \\count = t.get_count()
+        \\count = t.count
         \\was_active = t.is_active()
     );
     try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "count"));
@@ -1013,7 +1013,7 @@ test "BitSet - creation" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __bool__" {
@@ -1027,42 +1027,42 @@ test "BitSet - __and__" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(0b1100) & example.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1000), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1000), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __or__" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(0b1100) | example.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1110), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1110), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __xor__" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(0b1100) ^ example.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b0110), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b0110), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __invert__" {
     const python = try initTestPython();
 
     try python.exec("b = ~example.BitSet(0)");
-    try std.testing.expectEqual(~@as(u64, 0), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(~@as(u64, 0), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __lshift__" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(1) << example.BitSet(3)");
-    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __rshift__" {
     const python = try initTestPython();
 
     try python.exec("b = example.BitSet(8) >> example.BitSet(2)");
-    try std.testing.expectEqual(@as(u64, 2), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 2), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - count" {
@@ -1078,27 +1078,27 @@ test "BitSet - in-place operators" {
     // __iadd__ (in-place OR)
     try python.exec("b = example.BitSet(0b0011)");
     try python.exec("b += example.BitSet(0b1100)");
-    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b.bits"));
 
     // __isub__ (in-place AND NOT)
     try python.exec("b2 = example.BitSet(0b1111)");
     try python.exec("b2 -= example.BitSet(0b0011)");
-    try std.testing.expectEqual(@as(u64, 0b1100), try python.eval(u64, "b2.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1100), try python.eval(u64, "b2.bits"));
 
     // __iand__
     try python.exec("b3 = example.BitSet(0b1111)");
     try python.exec("b3 &= example.BitSet(0b0101)");
-    try std.testing.expectEqual(@as(u64, 0b0101), try python.eval(u64, "b3.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b0101), try python.eval(u64, "b3.bits"));
 
     // __ior__
     try python.exec("b4 = example.BitSet(0b0101)");
     try python.exec("b4 |= example.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b4.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b4.bits"));
 
     // __ixor__
     try python.exec("b5 = example.BitSet(0b1111)");
     try python.exec("b5 ^= example.BitSet(0b0101)");
-    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b5.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b5.bits"));
 }
 
 // ============================================================================
@@ -1180,11 +1180,11 @@ test "Adder - __call__" {
     try std.testing.expectEqual(@as(i64, 10), try python.eval(i64, "adder(0)"));
 }
 
-test "Adder - get_value" {
+test "Adder - value property" {
     const python = try initTestPython();
 
     try python.exec("adder = example.Adder(42)");
-    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "adder.get_value()"));
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "adder.value"));
 }
 
 // ============================================================================
@@ -1472,7 +1472,7 @@ test "BoundedValue - clamping setter" {
     try std.testing.expectApproxEqAbs(@as(f64, 50.0), try python.eval(f64, "bv.value"), 0.0001);
 
     // Check access_count incremented
-    try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "bv.get_access_count()"));
+    try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "bv.access_count"));
 }
 
 // ============================================================================
@@ -1501,13 +1501,13 @@ test "Flexible - methods" {
     const python = try initTestPython();
 
     try python.exec("f = example.Flexible(21)");
-    try std.testing.expectEqual(@as(i64, 21), try python.eval(i64, "f.get_value()"));
-    try python.exec("f.set_value(42)");
-    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "f.get_value()"));
+    try std.testing.expectEqual(@as(i64, 21), try python.eval(i64, "f.value"));
+    try python.exec("f.value = 42");
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "f.value"));
 
     // double() mutates in place (returns None)
     try python.exec("f.double()");
-    try std.testing.expectEqual(@as(i64, 84), try python.eval(i64, "f.get_value()"));
+    try std.testing.expectEqual(@as(i64, 84), try python.eval(i64, "f.value"));
 }
 
 // ============================================================================
@@ -1680,7 +1680,7 @@ test "TypedAttribute - bounds clamping" {
     try python.exec("ta = example.TypedAttribute(0.0, 100.0)");
 
     // Get bounds
-    try python.exec("bounds = ta.get_bounds()");
+    try python.exec("bounds = ta.bounds");
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), try python.eval(f64, "bounds[0]"), 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 100.0), try python.eval(f64, "bounds[1]"), 0.0001);
 }
@@ -2112,7 +2112,7 @@ test "TypedAttribute - descriptor protocol" {
     try python.exec("ta = example.TypedAttribute(0.0, 100.0)");
 
     // Test get_bounds method
-    try python.exec("bounds = ta.get_bounds()");
+    try python.exec("bounds = ta.bounds");
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), try python.eval(f64, "bounds[0]"), 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 100.0), try python.eval(f64, "bounds[1]"), 0.0001);
 
@@ -2364,7 +2364,7 @@ test "BitSet - __ilshift__ (in-place left shift)" {
 
     try python.exec("b = example.BitSet(1)");
     try python.exec("b <<= example.BitSet(3)");
-    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.bits"));
 }
 
 test "BitSet - __irshift__ (in-place right shift)" {
@@ -2372,7 +2372,7 @@ test "BitSet - __irshift__ (in-place right shift)" {
 
     try python.exec("b = example.BitSet(16)");
     try python.exec("b >>= example.BitSet(2)");
-    try std.testing.expectEqual(@as(u64, 4), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 4), try python.eval(u64, "b.bits"));
 }
 
 // ============================================================================
@@ -2386,7 +2386,7 @@ test "Number - in-place operators" {
     // The regular ops return new objects, which is the fallback behavior
     try python.exec("n = example.Number(10)");
     try python.exec("n = n + example.Number(5)"); // Fallback to __add__
-    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 // ============================================================================
@@ -3004,18 +3004,18 @@ test "PrivateFieldsExample - private fields accessible via methods" {
     try python.exec("obj = example.PrivateFieldsExample('test', 42)");
 
     // Private fields should be zero-initialized and accessible via methods
-    try std.testing.expectEqual(@as(i64, 0), try python.eval(i64, "obj.get_internal_counter()"));
+    try std.testing.expectEqual(@as(i64, 0), try python.eval(i64, "obj.internal_counter"));
     try std.testing.expect(!try python.eval(bool, "obj.has_cached_result()"));
 
     // Methods can modify private fields
     try std.testing.expectEqual(@as(i64, 1), try python.eval(i64, "obj.increment_counter()"));
     try std.testing.expectEqual(@as(i64, 2), try python.eval(i64, "obj.increment_counter()"));
-    try std.testing.expectEqual(@as(i64, 2), try python.eval(i64, "obj.get_internal_counter()"));
+    try std.testing.expectEqual(@as(i64, 2), try python.eval(i64, "obj.internal_counter"));
 
     // compute_and_cache modifies _cached_result
     try std.testing.expectEqual(@as(i64, 84), try python.eval(i64, "obj.compute_and_cache()")); // 42 * 2
     try std.testing.expect(try python.eval(bool, "obj.has_cached_result()"));
-    try std.testing.expectEqual(@as(i64, 84), try python.eval(i64, "obj.get_cached_or_zero()"));
+    try std.testing.expectEqual(@as(i64, 84), try python.eval(i64, "obj.cached_or_zero"));
 }
 
 test "PrivateFieldsExample - wrong number of args raises TypeError" {
@@ -3137,7 +3137,7 @@ test "Resource - creation and validity" {
 
     try python.exec("r = example.Resource(42)");
     try std.testing.expect(try python.eval(bool, "r.is_valid()"));
-    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "r.get_handle()"));
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "r.handle"));
 }
 
 test "Resource - __del__ runs on delete" {
@@ -3163,7 +3163,7 @@ test "Resource - __del__ runs when refcount drops to zero" {
         \\def create_and_discard():
         \\    r = example.Resource(123)
         \\    assert r.is_valid()
-        \\    return r.get_handle()
+        \\    return r.handle
         \\
         \\handle = create_and_discard()
         \\# r's refcount dropped to zero after function returned
@@ -3338,7 +3338,7 @@ test "Ref - basic: child holds reference to owner, can read owner value" {
     try python.exec("c = example.make_ref_child(o, 1)");
 
     // Child can access owner's value through the Ref
-    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "c.get_owner_value()"));
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "c.owner_value"));
     try std.testing.expect(try python.eval(bool, "c.has_owner()"));
     try std.testing.expectEqual(@as(i64, 1), try python.eval(i64, "c.tag"));
 }
@@ -3353,7 +3353,7 @@ test "Ref - owner stays alive while child holds reference" {
         \\rc_before = sys.getrefcount(o)
         \\del o
         \\# Owner should still be alive — child holds a Ref
-        \\val = c.get_owner_value()
+        \\val = c.owner_value
     );
     try std.testing.expectEqual(@as(i64, 99), try python.eval(i64, "val"));
 }
@@ -3400,9 +3400,9 @@ test "Ref - multiple children keep owner alive" {
         \\c3 = example.make_ref_child(o, 3)
         \\del o
         \\# All children still see the owner
-        \\v1 = c1.get_owner_value()
-        \\v2 = c2.get_owner_value()
-        \\v3 = c3.get_owner_value()
+        \\v1 = c1.owner_value
+        \\v2 = c2.owner_value
+        \\v3 = c3.owner_value
     );
     try std.testing.expectEqual(@as(i64, 77), try python.eval(i64, "v1"));
     try std.testing.expectEqual(@as(i64, 77), try python.eval(i64, "v2"));
@@ -3414,7 +3414,7 @@ test "Ref - child without owner returns None from get_owner_value" {
 
     // RefChild created via __init__ has no owner set (Ref is null)
     try python.exec("c = example.RefChild(1)");
-    try std.testing.expect(try python.eval(bool, "c.get_owner_value() is None"));
+    try std.testing.expect(try python.eval(bool, "c.owner_value is None"));
     try std.testing.expect(try python.eval(bool, "not c.has_owner()"));
 }
 
@@ -3446,7 +3446,7 @@ test "Ref - freelist: reused object works correctly with new ref" {
         \\del c
         \\# Create child with o2 (reuses from freelist)
         \\c2 = example.make_ref_child_freelist(o2, 2)
-        \\val = c2.get_owner_value()
+        \\val = c2.owner_value
     );
     // The reused child should reference o2, not o1
     try std.testing.expectEqual(@as(i64, 22), try python.eval(i64, "val"));

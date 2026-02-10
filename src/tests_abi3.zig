@@ -916,7 +916,7 @@ test "abi3 - Number - creation" {
     const python = try initTestPython();
 
     try python.exec("n = example_abi3.Number(42.5)");
-    try std.testing.expectApproxEqAbs(@as(f64, 42.5), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.5), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "abi3 - Number - arithmetic operators" {
@@ -924,39 +924,39 @@ test "abi3 - Number - arithmetic operators" {
 
     // __add__
     try python.exec("n = example_abi3.Number(10) + example_abi3.Number(5)");
-    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 15.0), try python.eval(f64, "n.value"), 0.0001);
 
     // __sub__
     try python.exec("n = example_abi3.Number(10) - example_abi3.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 7.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 7.0), try python.eval(f64, "n.value"), 0.0001);
 
     // __mul__
     try python.exec("n = example_abi3.Number(6) * example_abi3.Number(7)");
-    try std.testing.expectApproxEqAbs(@as(f64, 42.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.0), try python.eval(f64, "n.value"), 0.0001);
 
     // __truediv__
     try python.exec("n = example_abi3.Number(10) / example_abi3.Number(4)");
-    try std.testing.expectApproxEqAbs(@as(f64, 2.5), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), try python.eval(f64, "n.value"), 0.0001);
 
     // __floordiv__
     try python.exec("n = example_abi3.Number(10) // example_abi3.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "n.value"), 0.0001);
 
     // __mod__
     try python.exec("n = example_abi3.Number(10) % example_abi3.Number(3)");
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), try python.eval(f64, "n.value"), 0.0001);
 
     // __neg__
     try python.exec("n = -example_abi3.Number(42)");
-    try std.testing.expectApproxEqAbs(@as(f64, -42.0), try python.eval(f64, "n.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, -42.0), try python.eval(f64, "n.value"), 0.0001);
 }
 
 test "abi3 - Number - __divmod__" {
     const python = try initTestPython();
 
     try python.exec("q, r = divmod(example_abi3.Number(17), example_abi3.Number(5))");
-    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "q.get_value()"), 0.0001);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "r.get_value()"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), try python.eval(f64, "q.value"), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), try python.eval(f64, "r.value"), 0.0001);
 }
 
 test "abi3 - Number - comparison operators" {
@@ -1026,11 +1026,11 @@ test "abi3 - Adder - __call__" {
     try std.testing.expectEqual(@as(i64, 7), try python.eval(i64, "adder(-3)"));
 }
 
-test "abi3 - Adder - get_base" {
+test "abi3 - Adder - base property" {
     const python = try initTestPython();
 
     try python.exec("adder = example_abi3.Adder(42)");
-    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "adder.get_base()"));
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "adder.base"));
 }
 
 // ============================================================================
@@ -1080,7 +1080,7 @@ test "abi3 - BitSet - creation" {
     const python = try initTestPython();
 
     try python.exec("b = example_abi3.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1010), try python.eval(u64, "b.bits"));
 }
 
 test "abi3 - BitSet - __bool__" {
@@ -1095,27 +1095,27 @@ test "abi3 - BitSet - bitwise operators" {
 
     // __and__
     try python.exec("b = example_abi3.BitSet(0b1100) & example_abi3.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1000), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1000), try python.eval(u64, "b.bits"));
 
     // __or__
     try python.exec("b = example_abi3.BitSet(0b1100) | example_abi3.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b1110), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1110), try python.eval(u64, "b.bits"));
 
     // __xor__
     try python.exec("b = example_abi3.BitSet(0b1100) ^ example_abi3.BitSet(0b1010)");
-    try std.testing.expectEqual(@as(u64, 0b0110), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b0110), try python.eval(u64, "b.bits"));
 
     // __invert__
     try python.exec("b = ~example_abi3.BitSet(0)");
-    try std.testing.expectEqual(~@as(u64, 0), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(~@as(u64, 0), try python.eval(u64, "b.bits"));
 
     // __lshift__
     try python.exec("b = example_abi3.BitSet(1) << example_abi3.BitSet(3)");
-    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 8), try python.eval(u64, "b.bits"));
 
     // __rshift__
     try python.exec("b = example_abi3.BitSet(8) >> example_abi3.BitSet(2)");
-    try std.testing.expectEqual(@as(u64, 2), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 2), try python.eval(u64, "b.bits"));
 }
 
 test "abi3 - BitSet - count" {
@@ -1131,22 +1131,22 @@ test "abi3 - BitSet - in-place operators" {
     // __iadd__ (in-place OR)
     try python.exec("b = example_abi3.BitSet(0b0011)");
     try python.exec("b += example_abi3.BitSet(0b1100)");
-    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1111), try python.eval(u64, "b.bits"));
 
     // __isub__ (in-place AND NOT)
     try python.exec("b2 = example_abi3.BitSet(0b1111)");
     try python.exec("b2 -= example_abi3.BitSet(0b0011)");
-    try std.testing.expectEqual(@as(u64, 0b1100), try python.eval(u64, "b2.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 0b1100), try python.eval(u64, "b2.bits"));
 
     // __ilshift__
     try python.exec("b3 = example_abi3.BitSet(1)");
     try python.exec("b3 <<= example_abi3.BitSet(4)");
-    try std.testing.expectEqual(@as(u64, 16), try python.eval(u64, "b3.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 16), try python.eval(u64, "b3.bits"));
 
     // __irshift__
     try python.exec("b4 = example_abi3.BitSet(16)");
     try python.exec("b4 >>= example_abi3.BitSet(2)");
-    try std.testing.expectEqual(@as(u64, 4), try python.eval(u64, "b4.get_bits()"));
+    try std.testing.expectEqual(@as(u64, 4), try python.eval(u64, "b4.bits"));
 }
 
 // ============================================================================
@@ -1213,7 +1213,7 @@ test "abi3 - Timer - creation" {
     const python = try initTestPython();
 
     try python.exec("t = example_abi3.Timer('test')");
-    try std.testing.expect(try python.eval(bool, "'test' in t.get_name()"));
+    try std.testing.expect(try python.eval(bool, "'test' in t.name"));
 }
 
 test "abi3 - Timer - context manager protocol" {
@@ -1224,7 +1224,7 @@ test "abi3 - Timer - context manager protocol" {
         \\    t.tick()
         \\    t.tick()
         \\    t.tick()
-        \\count = t.get_count()
+        \\count = t.count
         \\was_active = t.is_active()
     );
     try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "count"));
@@ -1440,7 +1440,7 @@ test "abi3 - TypedAttribute - get_bounds" {
     const python = try initTestPython();
 
     try python.exec("attr = example_abi3.TypedAttribute(5.0, 95.0)");
-    try python.exec("bounds = attr.get_bounds()");
+    try python.exec("bounds = attr.bounds");
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), try python.eval(f64, "bounds[0]"), 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 95.0), try python.eval(f64, "bounds[1]"), 0.0001);
 }

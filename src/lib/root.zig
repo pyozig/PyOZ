@@ -258,7 +258,7 @@ pub const Null = exceptions_mod.Null;
 ///   const msg = pyoz.fmt("hello {s}", .{"world"});
 pub inline fn fmt(comptime format: []const u8, args: anytype) [*:0]const u8 {
     var buf: [4096]u8 = undefined;
-    return (std.fmt.bufPrintZ(&buf, format, args) catch return "fmt: message too long").ptr;
+    return (std.fmt.bufPrintZ(&buf, format, args) catch "fmt: message too long").ptr;
 }
 
 pub const raiseException = exceptions_mod.raiseException;
@@ -814,50 +814,13 @@ pub fn module(comptime config: anytype) type {
             break :blk m;
         };
 
-        var module_def: PyModuleDef = .{
-            .m_base = py.PyModuleDef_HEAD_INIT,
-            .m_name = config.name,
-            .m_doc = config.doc,
-            .m_size = -1,
-            .m_methods = &methods,
-            .m_slots = null,
-            .m_traverse = null,
-            .m_clear = null,
-            .m_free = null,
-        };
+        // Optional user-provided post-init callback
+        const module_init_fn: ?*const fn (*PyObject) callconv(.c) c_int =
+            if (@hasField(@TypeOf(config), "module_init")) config.module_init else null;
 
-        // Generate full exception names at comptime (e.g., "mymodule.MyError")
-        const exception_full_names: [num_exceptions][256:0]u8 = blk: {
-            var names: [num_exceptions][256:0]u8 = undefined;
-            for (exceptions, 0..) |exc, i| {
-                var buf: [256:0]u8 = [_:0]u8{0} ** 256;
-                // Get module name length by finding null terminator
-                var mod_len: usize = 0;
-                while (config.name[mod_len] != 0) : (mod_len += 1) {}
-                // Get exception name length
-                var exc_len: usize = 0;
-                while (exc.name[exc_len] != 0) : (exc_len += 1) {}
-                // Copy module name
-                for (0..mod_len) |j| {
-                    buf[j] = config.name[j];
-                }
-                buf[mod_len] = '.';
-                // Copy exception name
-                for (0..exc_len) |j| {
-                    buf[mod_len + 1 + j] = exc.name[j];
-                }
-                names[i] = buf;
-            }
-            break :blk names;
-        };
-
-        // Runtime storage for exception types
-        var exception_types: [num_exceptions]?*PyObject = [_]?*PyObject{null} ** num_exceptions;
-
-        pub fn init() ?*PyObject {
-            const mod = py.PyModule_Create(&module_def) orelse {
-                return null;
-            };
+        // Py_mod_exec slot function — called by Python to populate the module (PEP 489 phase 2)
+        fn moduleExec(mod_obj: ?*PyObject) callconv(.c) c_int {
+            const mod: *PyObject = mod_obj orelse return -1;
 
             // Initialize special type APIs at module load time (detected at comptime)
             if (needs_datetime_init) {
@@ -894,8 +857,7 @@ pub fn module(comptime config: anytype) type {
 
                 // Initialize type with qualified name for proper __module__
                 const type_obj = Wrapper.initTypeWithName(qualified_name) orelse {
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 };
 
                 // Add __slots__ tuple with field names to the type's __dict__
@@ -913,8 +875,7 @@ pub fn module(comptime config: anytype) type {
                     // Add class attributes (classattr_NAME declarations)
                     if (type_obj.tp_dict) |type_dict| {
                         if (!class_mod.addClassAttributes(cls.zig_type, type_dict)) {
-                            py.Py_DecRef(mod);
-                            return null;
+                            return -1;
                         }
                     }
                 } else {
@@ -922,8 +883,7 @@ pub fn module(comptime config: anytype) type {
                     // since tp_dict is not accessible
                     const type_as_obj: *py.PyObject = @ptrCast(@alignCast(type_obj));
                     if (!class_mod.addClassAttributesAbi3(cls.zig_type, type_as_obj)) {
-                        py.Py_DecRef(mod);
-                        return null;
+                        return -1;
                     }
                 }
 
@@ -936,13 +896,11 @@ pub fn module(comptime config: anytype) type {
                     py.Py_IncRef(type_as_obj);
                     if (py.c.PyModule_AddObject(mod, cls.name, type_as_obj) < 0) {
                         py.Py_DecRef(type_as_obj);
-                        py.Py_DecRef(mod);
-                        return null;
+                        return -1;
                     }
                 } else {
                     if (py.PyModule_AddType(mod, type_obj) < 0) {
-                        py.Py_DecRef(mod);
-                        return null;
+                        return -1;
                     }
                 }
             }
@@ -955,8 +913,7 @@ pub fn module(comptime config: anytype) type {
                     base_exc,
                     null,
                 ) orelse {
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 };
                 exception_types[i] = exc_type;
 
@@ -972,8 +929,7 @@ pub fn module(comptime config: anytype) type {
                 // Add to module
                 if (py.PyModule_AddObject(mod, exceptions[i].name, exc_type) < 0) {
                     py.Py_DecRef(exc_type);
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 }
             }
 
@@ -986,15 +942,13 @@ pub fn module(comptime config: anytype) type {
                     module_mod.createEnum(enum_def.zig_type, enum_def.name);
 
                 const enum_obj = enum_type orelse {
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 };
 
                 // Add to module (steals reference on success)
                 if (py.PyModule_AddObject(mod, enum_def.name, enum_obj) < 0) {
                     py.Py_DecRef(enum_obj);
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 }
             }
 
@@ -1002,15 +956,13 @@ pub fn module(comptime config: anytype) type {
             inline for (0..num_legacy_str_enums) |i| {
                 const str_enum_def = legacy_str_enums[i];
                 const str_enum_type = module_mod.createStrEnum(str_enum_def.zig_type, str_enum_def.name) orelse {
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 };
 
                 // Add to module (steals reference on success)
                 if (py.PyModule_AddObject(mod, str_enum_def.name, str_enum_type) < 0) {
                     py.Py_DecRef(str_enum_type);
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 }
             }
 
@@ -1023,19 +975,74 @@ pub fn module(comptime config: anytype) type {
 
                 // Convert to Python object based on type
                 const py_value = Conversions.toPy(T, value) orelse {
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 };
 
                 // Add to module (steals reference on success)
                 if (py.PyModule_AddObject(mod, const_def.name, py_value) < 0) {
                     py.Py_DecRef(py_value);
-                    py.Py_DecRef(mod);
-                    return null;
+                    return -1;
                 }
             }
 
-            return mod;
+            // Call user-provided post-init callback if present
+            if (module_init_fn) |user_init| {
+                if (user_init(mod) < 0) return -1;
+            }
+
+            return 0;
+        }
+
+        // Module slots for multi-phase initialization (PEP 489)
+        var module_slots = [_]py.c.PyModuleDef_Slot{
+            .{ .slot = py.c.Py_mod_exec, .value = @ptrCast(@constCast(&moduleExec)) },
+            .{ .slot = 0, .value = null },
+        };
+
+        var module_def: PyModuleDef = .{
+            .m_base = py.PyModuleDef_HEAD_INIT,
+            .m_name = config.name,
+            .m_doc = config.doc,
+            .m_size = 0,
+            .m_methods = &methods,
+            .m_slots = @ptrCast(&module_slots),
+            .m_traverse = null,
+            .m_clear = null,
+            .m_free = null,
+        };
+
+        // Generate full exception names at comptime (e.g., "mymodule.MyError")
+        const exception_full_names: [num_exceptions][256:0]u8 = blk: {
+            var names: [num_exceptions][256:0]u8 = undefined;
+            for (exceptions, 0..) |exc, i| {
+                var buf: [256:0]u8 = [_:0]u8{0} ** 256;
+                // Get module name length by finding null terminator
+                var mod_len: usize = 0;
+                while (config.name[mod_len] != 0) : (mod_len += 1) {}
+                // Get exception name length
+                var exc_len: usize = 0;
+                while (exc.name[exc_len] != 0) : (exc_len += 1) {}
+                // Copy module name
+                for (0..mod_len) |j| {
+                    buf[j] = config.name[j];
+                }
+                buf[mod_len] = '.';
+                // Copy exception name
+                for (0..exc_len) |j| {
+                    buf[mod_len + 1 + j] = exc.name[j];
+                }
+                names[i] = buf;
+            }
+            break :blk names;
+        };
+
+        // Runtime storage for exception types
+        var exception_types: [num_exceptions]?*PyObject = [_]?*PyObject{null} ** num_exceptions;
+
+        /// Initialize the module using multi-phase initialization (PEP 489).
+        /// Returns a module def object; Python calls moduleExec to populate it.
+        pub fn init() ?*PyObject {
+            return py.PyModuleDef_Init(&module_def);
         }
 
         /// Reference to a module exception for raising
