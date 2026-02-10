@@ -110,15 +110,15 @@ pub fn create(allocator: std.mem.Allocator, name_opt: ?[]const u8, in_current_di
             \\
             \\Project structure:
             \\  {s}/
-            \\  ├── pyproject.toml    # Project configuration
-            \\  ├── build.zig         # Zig build script
-            \\  ├── build.zig.zon     # Zig dependencies
-            \\  ├── README.md
-            \\  ├── .gitignore
-            \\  ├── src/
-            \\  │   └── lib.zig       # Your Zig extension code
-            \\  └── {s}/
-            \\      └── __init__.py   # Python package entry point
+            \\  +-- pyproject.toml    # Project configuration
+            \\  +-- build.zig         # Zig build script
+            \\  +-- build.zig.zon     # Zig dependencies
+            \\  +-- README.md
+            \\  +-- .gitignore
+            \\  +-- src/
+            \\  |   +-- lib.zig       # Your Zig extension code
+            \\  +-- {s}/
+            \\      +-- __init__.py   # Python package entry point
             \\
             \\Next steps:
             \\
@@ -130,13 +130,13 @@ pub fn create(allocator: std.mem.Allocator, name_opt: ?[]const u8, in_current_di
             \\
             \\Project structure:
             \\  {s}/
-            \\  ├── pyproject.toml    # Project configuration
-            \\  ├── build.zig         # Zig build script
-            \\  ├── build.zig.zon     # Zig dependencies
-            \\  ├── README.md
-            \\  ├── .gitignore
-            \\  └── src/
-            \\      └── lib.zig       # Your module code
+            \\  +-- pyproject.toml    # Project configuration
+            \\  +-- build.zig         # Zig build script
+            \\  +-- build.zig.zon     # Zig dependencies
+            \\  +-- README.md
+            \\  +-- .gitignore
+            \\  +-- src/
+            \\      +-- lib.zig       # Your module code
             \\
             \\Next steps:
             \\
@@ -571,6 +571,16 @@ const build_zig_template =
     \\    // Link libc (required for Python C API)
     \\    lib.linkLibC();
     \\
+    \\    // On Windows, link against the Python stable ABI library (python3.lib).
+    \\    // These options are passed automatically by `pyoz build`.
+    \\    // For manual `zig build` on Windows, pass: -Dpython-lib-dir=<path> -Dpython-lib-name=python3
+    \\    if (b.option([]const u8, "python-lib-dir", "Python library directory")) |lib_dir| {
+    \\        lib.addLibraryPath(.{ .cwd_relative = lib_dir });
+    \\    }
+    \\    if (b.option([]const u8, "python-lib-name", "Python library name")) |lib_name| {
+    \\        lib.linkSystemLibrary(lib_name);
+    \\    }
+    \\
     \\    // Determine extension based on target OS (.pyd for Windows, .so otherwise)
     \\    const ext = if (builtin.os.tag == .windows) ".pyd" else ".so";
     \\
@@ -627,6 +637,16 @@ const build_zig_package_template =
     \\
     \\    // Link libc (required for Python C API)
     \\    lib.linkLibC();
+    \\
+    \\    // On Windows, link against the Python stable ABI library (python3.lib).
+    \\    // These options are passed automatically by `pyoz build`.
+    \\    // For manual `zig build` on Windows, pass: -Dpython-lib-dir=<path> -Dpython-lib-name=python3
+    \\    if (b.option([]const u8, "python-lib-dir", "Python library directory")) |lib_dir| {
+    \\        lib.addLibraryPath(.{ .cwd_relative = lib_dir });
+    \\    }
+    \\    if (b.option([]const u8, "python-lib-name", "Python library name")) |lib_name| {
+    \\        lib.linkSystemLibrary(lib_name);
+    \\    }
     \\
     \\    // Determine extension based on target OS (.pyd for Windows, .so otherwise)
     \\    const ext = if (builtin.os.tag == .windows) ".pyd" else ".so";

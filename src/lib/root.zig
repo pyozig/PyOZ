@@ -663,9 +663,17 @@ fn generateTestContent(comptime config: anytype) []const u8 {
             break :blk config.name[0..len];
         };
 
+        // In package mode (module name starts with '_'), also import the package name
+        // so users can write `assert ravn.add(2, 3) == 5` instead of `assert _ravn.add(2, 3) == 5`
+        const pkg_import: []const u8 = if (mod_name.len > 1 and mod_name[0] == '_')
+            "import " ++ mod_name[1..] ++ "\n"
+        else
+            "";
+
         var result: []const u8 =
             "import unittest\n" ++
             "import " ++ mod_name ++ "\n" ++
+            pkg_import ++
             "\n" ++
             "\n" ++
             "class Test" ++ capitalizeFirst(mod_name) ++ "(unittest.TestCase):\n";
@@ -706,9 +714,15 @@ fn generateBenchContent(comptime config: anytype) []const u8 {
             break :blk config.name[0..len];
         };
 
+        const bench_pkg_import: []const u8 = if (mod_name.len > 1 and mod_name[0] == '_')
+            "import " ++ mod_name[1..] ++ "\n"
+        else
+            "";
+
         var result: []const u8 =
             "import timeit\n" ++
             "import " ++ mod_name ++ "\n" ++
+            bench_pkg_import ++
             "\n" ++
             "\n" ++
             "def run_benchmarks():\n" ++

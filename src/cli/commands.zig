@@ -207,9 +207,38 @@ pub fn runTests(allocator: std.mem.Allocator, args: []const []const u8) !void {
         return;
     }
 
+    // Load project config to detect package mode
+    var config = project.toml.loadPyProject(allocator) catch |err| {
+        if (err == error.PyProjectNotFound) {
+            std.debug.print("Error: pyproject.toml not found. Run 'pyoz init' first.\n", .{});
+        }
+        return err;
+    };
+    defer config.deinit(allocator);
+
+    // Detect package mode: module name starts with '_' and a py-package matches project name
+    const is_package_mode = blk: {
+        const mod_name = config.getModuleName();
+        if (mod_name.len > 0 and mod_name[0] == '_') {
+            for (config.py_packages.items) |pkg| {
+                if (std.mem.eql(u8, pkg, config.name)) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Build the module
     var build_result = try builder.buildModule(allocator, release);
     defer build_result.deinit(allocator);
+
+    // In package mode, copy .pyd/.so into the package directory so `import ravn` works
+    if (is_package_mode) {
+        const pkg_module_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ config.name, build_result.module_name });
+        defer allocator.free(pkg_module_path);
+        std.fs.cwd().copyFile(build_result.module_path, std.fs.cwd(), pkg_module_path, .{}) catch |err| {
+            std.debug.print("Warning: Could not copy module into package directory: {s}\n", .{@errorName(err)});
+        };
+    }
 
     // Extract tests from the compiled module
     const test_content = symreader.extractTests(allocator, build_result.module_path) catch |err| {
@@ -230,7 +259,7 @@ pub fn runTests(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer allocator.free(test_content.?);
 
     // Write test file next to the built module
-    const test_file = "zig-out/lib/__pyoz_test.py";
+    const test_file = if (builtin.os.tag == .windows) "zig-out/bin/__pyoz_test.py" else "zig-out/lib/__pyoz_test.py";
     {
         const cwd = std.fs.cwd();
         const f = cwd.createFile(test_file, .{}) catch |err| {
@@ -266,10 +295,18 @@ pub fn runTests(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const existing_pp = std.process.getEnvVarOwned(allocator, "PYTHONPATH") catch "";
     defer if (existing_pp.len > 0) allocator.free(existing_pp);
 
-    const new_pp = if (existing_pp.len > 0)
-        try std.fmt.allocPrint(allocator, "zig-out/lib{s}{s}", .{ path_sep, existing_pp })
+    // On Windows, Zig places DLLs (.pyd) in zig-out/bin/, so use the correct directory
+    const out_dir = if (builtin.os.tag == .windows) "zig-out/bin" else "zig-out/lib";
+    // In package mode, also add project root so `import ravn` finds ravn/__init__.py
+    const new_pp = if (is_package_mode)
+        if (existing_pp.len > 0)
+            try std.fmt.allocPrint(allocator, ".{s}{s}{s}{s}", .{ path_sep, out_dir, path_sep, existing_pp })
+        else
+            try std.fmt.allocPrint(allocator, ".{s}{s}", .{ path_sep, out_dir })
+    else if (existing_pp.len > 0)
+        try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ out_dir, path_sep, existing_pp })
     else
-        try allocator.dupe(u8, "zig-out/lib");
+        try allocator.dupe(u8, out_dir);
     defer allocator.free(new_pp);
 
     // Build argv
@@ -330,9 +367,38 @@ pub fn runBench(allocator: std.mem.Allocator, args: []const []const u8) !void {
         return;
     }
 
+    // Load project config to detect package mode
+    var config = project.toml.loadPyProject(allocator) catch |err| {
+        if (err == error.PyProjectNotFound) {
+            std.debug.print("Error: pyproject.toml not found. Run 'pyoz init' first.\n", .{});
+        }
+        return err;
+    };
+    defer config.deinit(allocator);
+
+    // Detect package mode
+    const is_package_mode = blk: {
+        const mod_name = config.getModuleName();
+        if (mod_name.len > 0 and mod_name[0] == '_') {
+            for (config.py_packages.items) |pkg| {
+                if (std.mem.eql(u8, pkg, config.name)) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Always build in release mode for benchmarks
     var build_result = try builder.buildModule(allocator, true);
     defer build_result.deinit(allocator);
+
+    // In package mode, copy .pyd/.so into the package directory so `import ravn` works
+    if (is_package_mode) {
+        const pkg_module_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ config.name, build_result.module_name });
+        defer allocator.free(pkg_module_path);
+        std.fs.cwd().copyFile(build_result.module_path, std.fs.cwd(), pkg_module_path, .{}) catch |err| {
+            std.debug.print("Warning: Could not copy module into package directory: {s}\n", .{@errorName(err)});
+        };
+    }
 
     // Extract benchmarks from the compiled module
     const bench_content = symreader.extractBenchmarks(allocator, build_result.module_path) catch |err| {
@@ -353,7 +419,7 @@ pub fn runBench(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer allocator.free(bench_content.?);
 
     // Write benchmark file next to the built module
-    const bench_file = "zig-out/lib/__pyoz_bench.py";
+    const bench_file = if (builtin.os.tag == .windows) "zig-out/bin/__pyoz_bench.py" else "zig-out/lib/__pyoz_bench.py";
     {
         const cwd = std.fs.cwd();
         const f = cwd.createFile(bench_file, .{}) catch |err| {
@@ -388,10 +454,18 @@ pub fn runBench(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const existing_pp = std.process.getEnvVarOwned(allocator, "PYTHONPATH") catch "";
     defer if (existing_pp.len > 0) allocator.free(existing_pp);
 
-    const new_pp = if (existing_pp.len > 0)
-        try std.fmt.allocPrint(allocator, "zig-out/lib{s}{s}", .{ path_sep, existing_pp })
+    // On Windows, Zig places DLLs (.pyd) in zig-out/bin/, so use the correct directory
+    const bench_out_dir = if (builtin.os.tag == .windows) "zig-out/bin" else "zig-out/lib";
+    // In package mode, also add project root so `import ravn` finds ravn/__init__.py
+    const new_pp = if (is_package_mode)
+        if (existing_pp.len > 0)
+            try std.fmt.allocPrint(allocator, ".{s}{s}{s}{s}", .{ path_sep, bench_out_dir, path_sep, existing_pp })
+        else
+            try std.fmt.allocPrint(allocator, ".{s}{s}", .{ path_sep, bench_out_dir })
+    else if (existing_pp.len > 0)
+        try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ bench_out_dir, path_sep, existing_pp })
     else
-        try allocator.dupe(u8, "zig-out/lib");
+        try allocator.dupe(u8, bench_out_dir);
     defer allocator.free(new_pp);
 
     var env_map = std.process.getEnvMap(allocator) catch |err| {

@@ -163,7 +163,7 @@ pub fn buildModule(allocator: std.mem.Allocator, release: bool) !BuildResult {
         // Determine optimization level:
         // - If --release flag is passed, always use ReleaseFast
         // - Otherwise, use the optimize setting from pyproject.toml (empty = debug)
-        var argv_buf: [4][]const u8 = undefined;
+        var argv_buf: [6][]const u8 = undefined;
         var argv_len: usize = 2;
         argv_buf[0] = "zig";
         argv_buf[1] = "build";
@@ -183,6 +183,22 @@ pub fn buildModule(allocator: std.mem.Allocator, release: bool) !BuildResult {
             argv_len += 1;
         }
 
+        // On Windows, pass Python library info so zig build can link against python3.lib
+        // (Windows linker requires all symbols resolved at link time, unlike Unix)
+        var lib_dir_arg: ?[]const u8 = null;
+        defer if (lib_dir_arg) |a| allocator.free(a);
+        if (builtin.os.tag == .windows) {
+            if (python.lib_dir) |lib_dir| {
+                lib_dir_arg = std.fmt.allocPrint(allocator, "-Dpython-lib-dir={s}", .{lib_dir}) catch null;
+                if (lib_dir_arg) |arg| {
+                    argv_buf[argv_len] = arg;
+                    argv_len += 1;
+                }
+            }
+            argv_buf[argv_len] = "-Dpython-lib-name=python3";
+            argv_len += 1;
+        }
+
         const argv: []const []const u8 = argv_buf[0..argv_len];
 
         var child = std.process.Child.init(argv, allocator);
@@ -196,7 +212,9 @@ pub fn buildModule(allocator: std.mem.Allocator, release: bool) !BuildResult {
         }
 
         const module_name = try std.fmt.allocPrint(allocator, "{s}{s}", .{ config.getModuleName(), ext });
-        const module_path = try std.fmt.allocPrint(allocator, "zig-out/lib/{s}", .{module_name});
+        // On Windows, Zig places DLLs (.pyd) in zig-out/bin/, import libs in zig-out/lib/
+        const out_dir = if (builtin.os.tag == .windows) "zig-out/bin" else "zig-out/lib";
+        const module_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ out_dir, module_name });
 
         return BuildResult{
             .module_path = module_path,

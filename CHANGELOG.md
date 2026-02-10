@@ -5,6 +5,14 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-02-10
+
+### Fixed
+- **Windows build support** - Fixed 77 `lld-link: undefined symbol` errors when building PyOZ projects on Windows. The generated `build.zig` template now accepts `-Dpython-lib-dir` and `-Dpython-lib-name` options, and `pyoz build` passes them automatically on Windows to link against `python3.lib` (stable ABI). Windows requires all symbols resolved at link time, unlike Linux/macOS which resolve Python symbols at runtime.
+- **Windows output path** - Fixed `FileNotFound` error during wheel creation on Windows. Zig places DLLs (`.pyd`) in `zig-out/bin/` on Windows, not `zig-out/lib/`. The builder, test runner, and benchmark runner now use the correct output directory per platform.
+- **Package mode test/bench imports** - In package layout (module name starts with `_`), the generated test and benchmark scripts now also `import ravn` (the package name) in addition to `import _ravn`, so users can write `assert ravn.add(2, 3) == 5` in their tests. The test/bench runners also detect package mode, copy the `.pyd`/`.so` into the package directory, and add the project root to `PYTHONPATH`.
+- **ASCII tree output for `pyoz init`** - Replaced UTF-8 box-drawing characters with ASCII in the project structure output, fixing garbled display on Windows PowerShell.
+
 ## [0.11.1] - 2026-02-10
 
 ### Added
