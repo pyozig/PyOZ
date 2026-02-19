@@ -6,6 +6,8 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -43,7 +45,7 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
             };
 
             const GetAttrFn = @TypeOf(T.__getattr__);
-            const RetType = @typeInfo(GetAttrFn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(GetAttrFn).@"fn".return_type.?);
 
             if (@typeInfo(RetType) == .error_union) {
                 const attr_result = T.__getattr__(self.getDataConst(), attr_name) catch |err| {
@@ -77,7 +79,7 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
                 if (@hasDecl(T, "__setattr__")) {
                     const SetAttrFn = @TypeOf(T.__setattr__);
                     const set_params = @typeInfo(SetAttrFn).@"fn".params;
-                    const RetType = @typeInfo(SetAttrFn).@"fn".return_type.?;
+                    const RetType = unwrapSignature(@typeInfo(SetAttrFn).@"fn".return_type.?);
 
                     if (set_params.len >= 3) {
                         const ValueType = set_params[2].type.?;
@@ -134,7 +136,7 @@ pub fn AttributeProtocol(comptime name: [*:0]const u8, comptime T: type, comptim
             } else {
                 if (@hasDecl(T, "__delattr__")) {
                     const DelAttrFn = @TypeOf(T.__delattr__);
-                    const RetType = @typeInfo(DelAttrFn).@"fn".return_type.?;
+                    const RetType = unwrapSignature(@typeInfo(DelAttrFn).@"fn".return_type.?);
 
                     if (@typeInfo(RetType) == .error_union) {
                         T.__delattr__(self.getData(), attr_name) catch |err| {

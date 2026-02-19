@@ -75,6 +75,7 @@ Struct fields with defaults become optional keyword arguments. Fields without de
 | `struct { T, U }` | `tuple` |
 | `[]const T` | `list` |
 | `pyoz.Owned(T)` | Same as `T` (frees backing memory) |
+| `pyoz.Signature(T, "S")` | Stub shows `S` instead of inferred type |
 
 ## Error Handling
 
@@ -116,6 +117,19 @@ fn heavy_compute(n: i64) i64 {
 ```
 
 See [GIL Management](gil.md) for details.
+
+## Stub Return Type Override
+
+When a function returns `?T` only to signal errors (not to return `None` to Python), the generated stub shows `T | None` — which is misleading. Use `pyoz.Signature(T, "stub_string")` to override the stub annotation:
+
+```zig
+fn validate(n: i64) pyoz.Signature(?i64, "int") {
+    if (n < 0) return pyoz.raiseValueError("must be non-negative");
+    return .{ .value = n };
+}
+```
+
+The stub shows `-> int` instead of `-> int | None`. At runtime, `Signature` is transparent — PyOZ unwraps the `.value` field automatically. See [Type Stubs: Return Type Override](stubs.md#return-type-override-signature) for more details.
 
 ## Docstrings
 

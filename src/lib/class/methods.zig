@@ -7,6 +7,8 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const Path = conversion.Path;
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -306,7 +308,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
             const MethodType = @TypeOf(method);
             const fn_info = @typeInfo(MethodType).@"fn";
             const params = fn_info.params;
-            const ReturnType = fn_info.return_type orelse void;
+            const RawReturnType = fn_info.return_type orelse void;
+            const ReturnType = unwrapSignature(RawReturnType);
 
             return struct {
                 fn wrapper(self_obj: ?*py.PyObject, args: ?*py.PyObject) callconv(.c) ?*py.PyObject {
@@ -322,7 +325,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                     defer releasePathArgs(&extra_args);
 
                     // Call method with self pointer and extra args
-                    const result = callMethod(self.getData(), extra_args);
+                    const raw_result = callMethod(self.getData(), extra_args);
+                    const result = unwrapSignatureValue(RawReturnType, raw_result);
 
                     // Handle return - pass self_obj for potential "return self" pattern
                     return handleReturn(result, self_obj.?, self.getData());
@@ -373,7 +377,7 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                     return std.meta.Tuple(&types);
                 }
 
-                fn callMethod(self_ptr: anytype, extra: ExtraArgsTuple()) ReturnType {
+                fn callMethod(self_ptr: anytype, extra: ExtraArgsTuple()) RawReturnType {
                     // Build the full args with self as first parameter
                     if (params.len == 1) {
                         return @call(.auto, method, .{self_ptr});
@@ -449,7 +453,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
             const MethodType = @TypeOf(method);
             const fn_info = @typeInfo(MethodType).@"fn";
             const params = fn_info.params;
-            const ReturnType = fn_info.return_type orelse void;
+            const RawReturnType = fn_info.return_type orelse void;
+            const ReturnType = unwrapSignature(RawReturnType);
             // Use a converter that knows about type T so we can return T instances
             const Conv = conversion.Converter(class_infos);
 
@@ -468,7 +473,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                     defer releasePathArgs(&zig_args);
 
                     // Call static method
-                    const result = @call(.auto, method, zig_args);
+                    const raw_result = @call(.auto, method, zig_args);
+                    const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
 
                     // Handle return
                     return handleReturn(result);
@@ -554,7 +560,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
             const MethodType = @TypeOf(method);
             const fn_info = @typeInfo(MethodType).@"fn";
             const params = fn_info.params;
-            const ReturnType = fn_info.return_type orelse void;
+            const RawReturnType = fn_info.return_type orelse void;
+            const ReturnType = unwrapSignature(RawReturnType);
             // Use a converter that knows about type T so we can return T instances
             const Conv = conversion.Converter(class_infos);
 
@@ -574,7 +581,8 @@ pub fn MethodBuilder(comptime _: [*:0]const u8, comptime T: type, comptime PyWra
                     defer releasePathArgs(&zig_args);
 
                     // Call class method with T as first argument, then the rest
-                    const result = @call(.auto, method, .{T} ++ zig_args);
+                    const raw_result = @call(.auto, method, .{T} ++ zig_args);
+                    const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
 
                     // Handle return
                     return handleReturn(result);

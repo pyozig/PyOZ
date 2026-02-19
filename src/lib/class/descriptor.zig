@@ -7,6 +7,7 @@ const conversion = @import("../conversion.zig");
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
+const unwrapSignature = @import("../root.zig").unwrapSignature;
 
 /// Build descriptor protocol for a given type
 pub fn DescriptorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
@@ -69,7 +70,7 @@ pub fn DescriptorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime 
 
             const GetFn = @TypeOf(T.__get__);
             const get_params = @typeInfo(GetFn).@"fn".params;
-            const RetType = @typeInfo(GetFn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(GetFn).@"fn".return_type.?);
 
             if (get_params.len == 1) {
                 return handleGetReturn(RetType, T.__get__(descr.getDataConst()));
@@ -100,7 +101,7 @@ pub fn DescriptorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime 
                 const SetFn = @TypeOf(T.__set__);
                 const set_params = @typeInfo(SetFn).@"fn".params;
                 const ValueType = set_params[2].type.?;
-                const SetRetType = @typeInfo(SetFn).@"fn".return_type.?;
+                const SetRetType = unwrapSignature(@typeInfo(SetFn).@"fn".return_type.?);
 
                 const zig_value = Conv.fromPy(ValueType, val) catch {
                     py.PyErr_SetString(py.PyExc_TypeError(), "invalid value type for descriptor");
@@ -115,7 +116,7 @@ pub fn DescriptorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime 
                 }
 
                 const DelFn = @TypeOf(T.__delete__);
-                const DelRetType = @typeInfo(DelFn).@"fn".return_type.?;
+                const DelRetType = unwrapSignature(@typeInfo(DelFn).@"fn".return_type.?);
                 return handleDescSetReturn(DelRetType, T.__delete__(descr.getData(), target));
             }
         }

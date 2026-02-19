@@ -44,6 +44,15 @@ fn validate_positive(n: i64) ?i64 {
     return n;
 }
 
+/// Validate positive with Signature override - stubs should show `int` not `int | None`
+fn validate_positive_sig(n: i64) pyoz.Signature(?i64, "int") {
+    if (n < 0) {
+        Example.getException(0).raise("Value must be non-negative");
+        return .{ .value = null };
+    }
+    return .{ .value = n };
+}
+
 /// Safe divide using custom exception
 fn safe_divide(a: f64, b: f64) ?f64 {
     if (b == 0.0) {
@@ -2957,6 +2966,7 @@ const Example = pyoz.module(.{
         pyoz.func("multiply", multiply, "Multiply two floats"),
         pyoz.func("divide", divide, "Divide two numbers (raises error if b=0)"),
         pyoz.func("validate_positive", validate_positive, "Validate that a number is non-negative"),
+        pyoz.func("validate_positive_sig", validate_positive_sig, "Validate positive (Signature override)"),
         pyoz.func("safe_divide", safe_divide, "Divide with custom exception on zero"),
         pyoz.kwfunc("greet_person", greet_person, "Greet a person with optional greeting and times"),
         pyoz.kwfunc("power", power, "Calculate base^exponent (default exponent=2)"),

@@ -180,6 +180,59 @@ pub const Owned = owned_mod.Owned;
 pub const owned = owned_mod.owned;
 
 // =============================================================================
+// Signature (stub return type override)
+// =============================================================================
+
+/// Override the Python type stub annotation for a function's return type.
+///
+/// `Signature(T, "python_type")` behaves identically to `T` at runtime, but
+/// the stub generator emits the provided string instead of inferring from `T`.
+///
+/// Use this when the Zig return type doesn't map cleanly to the Python type,
+/// most commonly when `?T` is used for exception signaling (not `None` returns):
+///
+/// ```zig
+/// // Without Signature: generates `def probe() -> dict[str, bool] | None`
+/// fn probe() ?Dict([]const u8, bool) { ... }
+///
+/// // With Signature: generates `def probe() -> dict[str, bool]`
+/// fn probe() pyoz.Signature(?Dict([]const u8, bool), "dict[str, bool]") { ... }
+///
+/// // For functions that only raise: generates `def fail() -> Never`
+/// fn fail() pyoz.Signature(?void, "Never") { ... }
+/// ```
+///
+/// Works on both module-level functions and class methods.
+pub fn Signature(comptime Inner: type, comptime stub: []const u8) type {
+    return struct {
+        pub const _is_pyoz_signature = true;
+        pub const inner_type = Inner;
+        pub const stub_type = stub;
+        value: Inner,
+    };
+}
+
+/// Unwrap a `Signature(T, ...)` to its inner type `T`.
+/// If `T` is not a Signature wrapper, returns `T` unchanged.
+/// Use this everywhere return types are introspected at comptime.
+pub fn unwrapSignature(comptime T: type) type {
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "_is_pyoz_signature")) {
+        return T.inner_type;
+    }
+    return T;
+}
+
+/// If the raw return value is a Signature wrapper, extract the inner `.value`.
+/// Otherwise return the value unchanged.
+/// Use this at runtime to unwrap the actual result of a function call.
+pub fn unwrapSignatureValue(comptime RawReturnType: type, raw: RawReturnType) unwrapSignature(RawReturnType) {
+    if (@typeInfo(RawReturnType) == .@"struct" and @hasDecl(RawReturnType, "_is_pyoz_signature")) {
+        return raw.value;
+    }
+    return raw;
+}
+
+// =============================================================================
 // GIL Control
 // =============================================================================
 
@@ -416,7 +469,7 @@ fn extractClassInfo(comptime classes: anytype) []const class_mod.ClassInfo {
 fn usesDecimalType(comptime T: type) bool {
     const info = @typeInfo(T);
     return switch (info) {
-        .@"struct" => T == Decimal,
+        .@"struct" => if (@hasDecl(T, "_is_pyoz_signature")) usesDecimalType(T.inner_type) else T == Decimal,
         .optional => |opt| usesDecimalType(opt.child),
         .pointer => |ptr| usesDecimalType(ptr.child),
         else => false,
@@ -427,7 +480,7 @@ fn usesDecimalType(comptime T: type) bool {
 fn usesDateTimeType(comptime T: type) bool {
     const info = @typeInfo(T);
     return switch (info) {
-        .@"struct" => T == DateTime or T == Date or T == Time or T == TimeDelta,
+        .@"struct" => if (@hasDecl(T, "_is_pyoz_signature")) usesDateTimeType(T.inner_type) else T == DateTime or T == Date or T == Time or T == TimeDelta,
         .optional => |opt| usesDateTimeType(opt.child),
         .pointer => |ptr| usesDateTimeType(ptr.child),
         else => false,
@@ -436,6 +489,7 @@ fn usesDateTimeType(comptime T: type) bool {
 
 // Check if any function in the list uses Decimal types
 fn anyFuncUsesDecimal(comptime funcs_list: anytype) bool {
+    @setEvalBranchQuota(std.math.maxInt(u32));
     for (funcs_list) |f| {
         const Fn = @TypeOf(f.func);
         const fn_info = @typeInfo(Fn).@"fn";
@@ -455,6 +509,7 @@ fn anyFuncUsesDecimal(comptime funcs_list: anytype) bool {
 
 // Check if any function in the list uses DateTime types
 fn anyFuncUsesDateTime(comptime funcs_list: anytype) bool {
+    @setEvalBranchQuota(std.math.maxInt(u32));
     for (funcs_list) |f| {
         const Fn = @TypeOf(f.func);
         const fn_info = @typeInfo(Fn).@"fn";

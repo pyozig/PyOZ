@@ -654,22 +654,37 @@ class Node:
         ...
 ```
 
-### Return Type Override (`__returns__`)
+### Return Type Override (`Signature`)
 
-When a method returns `?*pyoz.PyObject`, the stub shows `Any | None`. Override it with the concrete Python type:
+When a method returns `?T` only to signal errors (not to return `None`), or returns `?*pyoz.PyObject` for a complex type, the inferred stub annotation won't match the actual Python API. Use `pyoz.Signature(T, "stub_string")` as the return type to override it:
 
 ```zig
 const Node = struct {
-    pub const children__returns__: []const u8 = "list[Node]";
+    pub fn children(self: *const Node) pyoz.Signature(?*pyoz.PyObject, "list[Node]") {
+        const list = buildChildList(self) orelse {
+            _ = pyoz.raiseRuntimeError("failed to build children");
+            return .{ .value = null };
+        };
+        return .{ .value = list };
+    }
 
-    pub fn children(self: *const Node) ?*pyoz.PyObject { ... }
+    pub fn find(self: *const Node, name: []const u8) pyoz.Signature(?Node, "Node") {
+        // null signals an error, not a None return
+        return .{ .value = self.doFind(name) orelse {
+            _ = pyoz.raiseKeyError("not found");
+            return .{ .value = null };
+        }};
+    }
 };
 ```
 
 Generated stub:
 ```python
 def children(self) -> list[Node]: ...
+def find(self, arg0: str) -> Node: ...
 ```
+
+`Signature` works the same way for instance methods, static methods, and class methods. See [Return Type Override](stubs.md#return-type-override-signature) for full details.
 
 ### Parameter Names (`__params__`)
 

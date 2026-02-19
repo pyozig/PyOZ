@@ -6,6 +6,9 @@ const std = @import("std");
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -78,9 +81,11 @@ pub fn CallableProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
             }
         }
 
-        fn handleCallReturn(result: @typeInfo(@TypeOf(T.__call__)).@"fn".return_type.?) ?*py.PyObject {
+        fn handleCallReturn(raw: @typeInfo(@TypeOf(T.__call__)).@"fn".return_type.?) ?*py.PyObject {
             const CallFn = @TypeOf(T.__call__);
-            const ReturnType = @typeInfo(CallFn).@"fn".return_type.?;
+            const RawReturnType = @typeInfo(CallFn).@"fn".return_type.?;
+            const ReturnType = unwrapSignature(RawReturnType);
+            const result = unwrapSignatureValue(RawReturnType, raw);
             const rt_info = @typeInfo(ReturnType);
 
             if (rt_info == .error_union) {

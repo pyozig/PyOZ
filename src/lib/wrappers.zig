@@ -13,6 +13,9 @@ const ClassInfo = class_mod.ClassInfo;
 const errors_mod = @import("errors.zig");
 const ErrorMapping = errors_mod.ErrorMapping;
 const setErrorFromMapping = errors_mod.setErrorFromMapping;
+const root = @import("root.zig");
+const unwrapSignature = root.unwrapSignature;
+const unwrapSignatureValue = root.unwrapSignatureValue;
 
 /// Generate a Python-callable wrapper for a Zig function with class type awareness
 pub fn wrapFunctionWithClasses(comptime zig_func: anytype, comptime class_infos: []const ClassInfo) py.PyCFunction {
@@ -20,7 +23,7 @@ pub fn wrapFunctionWithClasses(comptime zig_func: anytype, comptime class_infos:
     const Fn = @TypeOf(zig_func);
     const fn_info = @typeInfo(Fn).@"fn";
     const params = fn_info.params;
-    const ReturnType = fn_info.return_type orelse void;
+    const ReturnType = unwrapSignature(fn_info.return_type orelse void);
 
     return struct {
         fn wrapper(self: ?*PyObject, args: ?*PyObject) callconv(.c) ?*PyObject {
@@ -33,7 +36,8 @@ pub fn wrapFunctionWithClasses(comptime zig_func: anytype, comptime class_infos:
             // Ensure BufferView arguments are released after the function call
             defer releaseBufferViews(&zig_args);
 
-            const result = @call(.auto, zig_func, zig_args);
+            const raw_result = @call(.auto, zig_func, zig_args);
+            const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
             return handleReturn(ReturnType, result);
         }
 
@@ -128,7 +132,7 @@ pub fn wrapFunctionWithNamedKeywords(comptime zig_func: anytype, comptime class_
     const Fn = @TypeOf(zig_func);
     const fn_info = @typeInfo(Fn).@"fn";
     const params = fn_info.params;
-    const ReturnType = fn_info.return_type orelse void;
+    const ReturnType = unwrapSignature(fn_info.return_type orelse void);
 
     // Get the Args wrapper type and the inner struct type
     const ArgsWrapperType = params[0].type.?;
@@ -208,7 +212,8 @@ pub fn wrapFunctionWithNamedKeywords(comptime zig_func: anytype, comptime class_
 
             // Call function with wrapped args
             const wrapped_args = ArgsWrapperType{ .value = result_args };
-            const result = zig_func(wrapped_args);
+            const raw_result = zig_func(wrapped_args);
+            const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
 
             return handleReturn(ReturnType, result);
         }
@@ -252,7 +257,7 @@ pub fn wrapFunctionWithKeywords(comptime zig_func: anytype, comptime class_infos
     const Fn = @TypeOf(zig_func);
     const fn_info = @typeInfo(Fn).@"fn";
     const params = fn_info.params;
-    const ReturnType = fn_info.return_type orelse void;
+    const ReturnType = unwrapSignature(fn_info.return_type orelse void);
 
     return struct {
         // Generate parameter names at comptime (arg0, arg1, etc.)
@@ -291,7 +296,8 @@ pub fn wrapFunctionWithKeywords(comptime zig_func: anytype, comptime class_infos
             // Ensure BufferView arguments are released after the function call
             defer releaseBufferViews(&zig_args);
 
-            const result = @call(.auto, zig_func, zig_args);
+            const raw_result = @call(.auto, zig_func, zig_args);
+            const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
             return handleReturn(ReturnType, result);
         }
 
@@ -407,7 +413,7 @@ pub fn wrapFunctionWithErrorMapping(comptime zig_func: anytype, comptime class_i
     const Fn = @TypeOf(zig_func);
     const fn_info = @typeInfo(Fn).@"fn";
     const params = fn_info.params;
-    const ReturnType = fn_info.return_type orelse void;
+    const ReturnType = unwrapSignature(fn_info.return_type orelse void);
 
     return struct {
         fn wrapper(self: ?*PyObject, args: ?*PyObject) callconv(.c) ?*PyObject {
@@ -420,15 +426,16 @@ pub fn wrapFunctionWithErrorMapping(comptime zig_func: anytype, comptime class_i
             // Ensure BufferView arguments are released after the function call
             defer releaseBufferViews(&zig_args);
 
-            const result = @call(.auto, zig_func, zig_args);
+            const raw_result = @call(.auto, zig_func, zig_args);
+            const result = unwrapSignatureValue(@TypeOf(raw_result), raw_result);
             return handleReturn(ReturnType, result);
         }
 
         fn parseArgs(comptime parameters: anytype, args: ?*PyObject) !ArgsTuple(parameters) {
-            var result: ArgsTuple(parameters) = undefined;
+            var parse_result: ArgsTuple(parameters) = undefined;
 
             if (parameters.len == 0) {
-                return result;
+                return parse_result;
             }
 
             const py_args = args orelse return error.MissingArguments;
@@ -440,10 +447,10 @@ pub fn wrapFunctionWithErrorMapping(comptime zig_func: anytype, comptime class_i
 
             inline for (parameters, 0..) |param, i| {
                 const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
-                result[i] = try Conv.fromPy(param.type.?, item);
+                parse_result[i] = try Conv.fromPy(param.type.?, item);
             }
 
-            return result;
+            return parse_result;
         }
 
         fn releaseBufferViews(zig_args: *ArgsTuple(params)) void {

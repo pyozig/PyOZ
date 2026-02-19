@@ -6,6 +6,7 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
+const unwrapSignature = @import("../root.zig").unwrapSignature;
 
 // Rich comparison operation codes
 pub const Py_LT: c_int = 0;
@@ -64,7 +65,7 @@ pub fn ComparisonProtocol(comptime T: type, comptime Parent: type, comptime clas
             const OtherType = getOtherParamType(method_name) orelse return null;
             const other = convertOther(OtherType, other_obj) orelse return null;
             const CmpFn = @TypeOf(@field(T, method_name));
-            const CmpRetType = @typeInfo(CmpFn).@"fn".return_type.?;
+            const CmpRetType = unwrapSignature(@typeInfo(CmpFn).@"fn".return_type.?);
             if (@typeInfo(CmpRetType) == .error_union) {
                 const result = @field(T, method_name)(self_data, other) catch |err| {
                     if (py.PyErr_Occurred() == null) {

@@ -74,23 +74,15 @@ pub inline fn PyDict_Check(obj: *PyObject) bool {
 /// Check if an object is an instance of a type (or subtype)
 /// Reimplemented to avoid cImport issues with _PyObject_CAST_CONST macro
 pub inline fn PyObject_TypeCheck(obj: *PyObject, type_obj: *PyTypeObject) bool {
-    const obj_type = Py_TYPE(obj) orelse return false;
-    return obj_type == type_obj or c.PyType_IsSubtype(obj_type, type_obj) != 0;
+    return isTypeOrSubtype(obj, type_obj);
 }
 
 pub inline fn PySet_Check(obj: *PyObject) bool {
-    // Can't use c.PySet_Check due to C macro translation issues
-    // Manually check: Py_IS_TYPE(ob, &PySet_Type) || PyType_IsSubtype(Py_TYPE(ob), &PySet_Type)
-    const obj_type = Py_TYPE(obj);
-    const set_type: *PyTypeObject = @ptrCast(&c.PySet_Type);
-    return obj_type == set_type or c.PyType_IsSubtype(obj_type, set_type) != 0;
+    return isTypeOrSubtype(obj, @ptrCast(&c.PySet_Type));
 }
 
 pub inline fn PyFrozenSet_Check(obj: *PyObject) bool {
-    // Can't use c.PyFrozenSet_Check due to C macro translation issues
-    const obj_type = Py_TYPE(obj);
-    const frozenset_type: *PyTypeObject = @ptrCast(&c.PyFrozenSet_Type);
-    return obj_type == frozenset_type or c.PyType_IsSubtype(obj_type, frozenset_type) != 0;
+    return isTypeOrSubtype(obj, @ptrCast(&c.PyFrozenSet_Type));
 }
 
 pub inline fn PyAnySet_Check(obj: *PyObject) bool {
@@ -98,13 +90,15 @@ pub inline fn PyAnySet_Check(obj: *PyObject) bool {
 }
 
 pub inline fn PyBytes_Check(obj: *PyObject) bool {
-    const bytes_type: *PyTypeObject = @ptrCast(&c.PyBytes_Type);
-    return Py_TYPE(obj) == bytes_type or c.PyType_IsSubtype(Py_TYPE(obj), bytes_type) != 0;
+    return isTypeOrSubtype(obj, @ptrCast(&c.PyBytes_Type));
 }
 
 pub inline fn PyByteArray_Check(obj: *PyObject) bool {
-    const ba_type: *PyTypeObject = @ptrCast(&c.PyByteArray_Type);
-    return Py_TYPE(obj) == ba_type or c.PyType_IsSubtype(Py_TYPE(obj), ba_type) != 0;
+    return isTypeOrSubtype(obj, @ptrCast(&c.PyByteArray_Type));
+}
+
+pub inline fn PyMemoryView_Check(obj: *PyObject) bool {
+    return isTypeOrSubtype(obj, @ptrCast(&c.PyMemoryView_Type));
 }
 
 pub inline fn PyCallable_Check(obj: *PyObject) bool {

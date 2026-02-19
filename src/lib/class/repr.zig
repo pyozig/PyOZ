@@ -8,6 +8,7 @@ const conversion = @import("../conversion.zig");
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
+const unwrapSignature = @import("../root.zig").unwrapSignature;
 
 /// Check if a field name indicates a private field (starts with underscore)
 fn isPrivateField(comptime field_name: []const u8) bool {
@@ -106,7 +107,7 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Conv = conversion.Converter(class_infos);
             const repr_fn_info = @typeInfo(@TypeOf(T.__repr__)).@"fn";
-            const RetType = repr_fn_info.return_type.?;
+            const RetType = unwrapSignature(repr_fn_info.return_type.?);
             if (repr_fn_info.params.len == 2) {
                 var buf: [4096]u8 = undefined;
                 return handleReprReturn(RetType, T.__repr__(self.getDataConst(), &buf), Conv);
@@ -124,7 +125,7 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Conv = conversion.Converter(class_infos);
             const str_fn_info = @typeInfo(@TypeOf(T.__str__)).@"fn";
-            const RetType = str_fn_info.return_type.?;
+            const RetType = unwrapSignature(str_fn_info.return_type.?);
             if (str_fn_info.params.len == 2) {
                 var buf: [4096]u8 = undefined;
                 return handleReprReturn(RetType, T.__str__(self.getDataConst(), &buf), Conv);
@@ -137,7 +138,7 @@ pub fn ReprProtocol(comptime name: [*:0]const u8, comptime T: type, comptime Par
         pub fn py_hash(self_obj: ?*py.PyObject) callconv(.c) py.c.Py_hash_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
             const HashFn = @TypeOf(T.__hash__);
-            const HashRetType = @typeInfo(HashFn).@"fn".return_type.?;
+            const HashRetType = unwrapSignature(@typeInfo(HashFn).@"fn".return_type.?);
             if (@typeInfo(HashRetType) == .error_union) {
                 const result = T.__hash__(self.getDataConst()) catch |err| {
                     if (py.PyErr_Occurred() == null) {

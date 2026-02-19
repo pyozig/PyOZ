@@ -1806,6 +1806,43 @@ test "fn validate_positive - error mapping" {
     try std.testing.expect(try python.eval(bool, "raised"));
 }
 
+// ============================================================================
+// SIGNATURE RETURN TYPE OVERRIDE
+// ============================================================================
+
+test "fn validate_positive_sig - Signature runtime behavior" {
+    const python = try initTestPython();
+
+    // Valid input returns the value (Signature is transparent at runtime)
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.validate_positive_sig(5)"));
+    try std.testing.expectEqual(@as(i64, 0), try python.eval(i64, "example.validate_positive_sig(0)"));
+
+    // Negative input raises exception (null -> exception, not None)
+    try python.exec(
+        \\try:
+        \\    example.validate_positive_sig(-5)
+        \\    sig_raised = False
+        \\except Exception:
+        \\    sig_raised = True
+    );
+    try std.testing.expect(try python.eval(bool, "sig_raised"));
+}
+
+test "Signature - stub shows overridden type, not inferred type" {
+    // Extract stubs from the compiled example.so using symreader
+    const stubs_opt = symreader.extractStubs(std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+
+    // validate_positive (no Signature) should show `int | None`
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def validate_positive(arg0: int) -> int | None") != null);
+
+    // validate_positive_sig (with Signature) should show `int` NOT `int | None`
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def validate_positive_sig(arg0: int) -> int") != null);
+    // Make sure it does NOT have `int | None` for the sig version
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def validate_positive_sig(arg0: int) -> int | None") == null);
+}
+
 test "fn parse_and_validate - error mapping" {
     const python = try initTestPython();
 

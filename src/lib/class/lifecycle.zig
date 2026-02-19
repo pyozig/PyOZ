@@ -11,6 +11,9 @@ const conversion = @import("../conversion.zig");
 const abi = @import("../abi.zig");
 const ref_mod = @import("../ref.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -248,8 +251,10 @@ pub fn LifecycleBuilder(
         ///   - `T`  — plain struct (always succeeds)
         ///   - `!T` — error union (error → RuntimeError, or user already set an exception)
         ///   - `?T` — optional (null → TypeError, or user already set an exception via raise*)
-        fn handleNewReturn(self: *PyWrapper, result: anytype) c_int {
-            const RT = @TypeOf(result);
+        fn handleNewReturn(self: *PyWrapper, raw: anytype) c_int {
+            const RawRT = @TypeOf(raw);
+            const result = unwrapSignatureValue(RawRT, raw);
+            const RT = unwrapSignature(RawRT);
             const rt_info = @typeInfo(RT);
 
             if (rt_info == .error_union) {

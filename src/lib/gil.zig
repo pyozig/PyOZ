@@ -4,6 +4,8 @@
 //! Python extensions.
 
 const py = @import("python.zig");
+const unwrapSignature = @import("root.zig").unwrapSignature;
+const unwrapSignatureValue = @import("root.zig").unwrapSignatureValue;
 
 /// RAII-style GIL releaser. Releases the GIL on creation, reacquires on deinit.
 /// Use this when you have CPU-intensive code that doesn't touch Python objects.
@@ -64,17 +66,19 @@ pub fn acquireGIL() GILState {
 ///     return pyoz.allowThreads(compute, .{data});
 /// }
 /// ```
-pub fn allowThreads(comptime func: anytype, args: anytype) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
+pub fn allowThreads(comptime func: anytype, args: anytype) unwrapSignature(@typeInfo(@TypeOf(func)).@"fn".return_type.?) {
+    const RawReturnType = @typeInfo(@TypeOf(func)).@"fn".return_type.?;
     const state = py.PyEval_SaveThread();
-    const result = @call(.auto, func, args);
+    const raw_result = @call(.auto, func, args);
     py.PyEval_RestoreThread(state);
-    return result;
+    return unwrapSignatureValue(RawReturnType, raw_result);
 }
 
 /// Like `allowThreads` but for functions that return errors.
 /// Releases the GIL, calls the function, reacquires the GIL, then propagates the error.
-pub fn allowThreadsTry(comptime func: anytype, args: anytype) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
+pub fn allowThreadsTry(comptime func: anytype, args: anytype) unwrapSignature(@typeInfo(@TypeOf(func)).@"fn".return_type.?) {
+    const RawReturnType = @typeInfo(@TypeOf(func)).@"fn".return_type.?;
     const state = py.PyEval_SaveThread();
     defer py.PyEval_RestoreThread(state);
-    return @call(.auto, func, args);
+    return unwrapSignatureValue(RawReturnType, @call(.auto, func, args));
 }

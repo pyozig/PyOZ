@@ -7,6 +7,7 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const slots = py.slots;
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -155,7 +156,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
                     const Fn = @TypeOf(@field(T, forward));
-                    const RetType = @typeInfo(Fn).@"fn".return_type.?;
+                    const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
                     return handleNumberReturn(RetType, @field(T, forward)(self.getDataConst(), other.getDataConst()), exc);
                 }
             }
@@ -164,7 +165,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
                 if (@hasDecl(T, reverse)) {
                     const other: *Parent.PyWrapper = @ptrCast(@alignCast(other_obj orelse return null));
                     const RFn = @TypeOf(@field(T, reverse));
-                    const RRetType = @typeInfo(RFn).@"fn".return_type.?;
+                    const RRetType = unwrapSignature(@typeInfo(RFn).@"fn".return_type.?);
                     return handleNumberReturn(RRetType, @field(T, reverse)(other.getDataConst(), self_obj.?), exc);
                 }
             }
@@ -177,7 +178,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
                         const OtherType = fwd_params[1].type.?;
                         if (OtherType == ?*py.PyObject or OtherType == *py.PyObject) {
                             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
-                            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+                            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
                             return handleNumberReturn(RetType, @field(T, forward)(self.getDataConst(), other_obj.?), exc);
                         }
                     }
@@ -195,7 +196,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
                 return py.Py_NotImplemented();
             }
             const Fn = @TypeOf(@field(T, method));
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleInplaceReturn(RetType, @field(T, method)(self.getData(), other.getDataConst()), self_obj);
         }
 
@@ -214,7 +215,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
         fn py_nb_neg(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__neg__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__neg__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
@@ -237,7 +238,7 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
         fn py_nb_bool(self_obj: ?*py.PyObject) callconv(.c) c_int {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
             const BoolFn = @TypeOf(T.__bool__);
-            const BoolRetType = @typeInfo(BoolFn).@"fn".return_type.?;
+            const BoolRetType = unwrapSignature(@typeInfo(BoolFn).@"fn".return_type.?);
             if (@typeInfo(BoolRetType) == .error_union) {
                 const result = T.__bool__(self.getDataConst()) catch |err| {
                     if (py.PyErr_Occurred() == null) {
@@ -261,21 +262,21 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
         fn py_nb_pos(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__pos__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__pos__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_abs(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__abs__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__abs__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_invert(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__invert__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__invert__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
@@ -306,21 +307,21 @@ pub fn NumberProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pare
         fn py_nb_int(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__int__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__int__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_float(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__float__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__float__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 
         fn py_nb_index(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const Fn = @TypeOf(T.__index__);
-            const RetType = @typeInfo(Fn).@"fn".return_type.?;
+            const RetType = unwrapSignature(@typeInfo(Fn).@"fn".return_type.?);
             return handleNumberReturn(RetType, T.__index__(self.getDataConst()), py.PyExc_RuntimeError());
         }
 

@@ -107,6 +107,7 @@ pub const PyFrozenSet_Check = mod.PyFrozenSet_Check;
 pub const PyAnySet_Check = mod.PyAnySet_Check;
 pub const PyBytes_Check = mod.PyBytes_Check;
 pub const PyByteArray_Check = mod.PyByteArray_Check;
+pub const PyMemoryView_Check = mod.PyMemoryView_Check;
 pub const PyObject_TypeCheck = mod.PyObject_TypeCheck;
 pub const PyCallable_Check = mod.PyCallable_Check;
 

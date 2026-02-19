@@ -5,6 +5,8 @@
 const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -16,7 +18,7 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
         pub fn py_iter(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const IterFn = @TypeOf(T.__iter__);
-            const IterRetType = @typeInfo(IterFn).@"fn".return_type.?;
+            const IterRetType = unwrapSignature(@typeInfo(IterFn).@"fn".return_type.?);
             const iter_rt_info = @typeInfo(IterRetType);
 
             if (iter_rt_info == .error_union) {
@@ -65,7 +67,7 @@ pub fn IteratorProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
         pub fn py_iternext(self_obj: ?*py.PyObject) callconv(.c) ?*py.PyObject {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
             const NextFn = @TypeOf(T.__next__);
-            const NextRetType = @typeInfo(NextFn).@"fn".return_type.?;
+            const NextRetType = unwrapSignature(@typeInfo(NextFn).@"fn".return_type.?);
 
             if (@typeInfo(NextRetType) == .error_union) {
                 const result = T.__next__(self.getData()) catch |err| {

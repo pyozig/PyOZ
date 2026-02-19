@@ -1,6 +1,6 @@
 .{
     .name = .pyoz,
-    .version = "0.11.3",
+    .version = "0.11.4",
     .fingerprint = 0x43eec3150282fd1f,
     .dependencies = .{
         .PyOZ = .{

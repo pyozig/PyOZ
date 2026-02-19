@@ -9,6 +9,7 @@ const slots = py.slots;
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
+const unwrapSignature = @import("../root.zig").unwrapSignature;
 
 /// Build sequence protocol for a given type
 pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
@@ -36,7 +37,7 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
         fn py_sq_length(self_obj: ?*py.PyObject) callconv(.c) py.Py_ssize_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
             const LenFn = @TypeOf(T.__len__);
-            const LenRetType = @typeInfo(LenFn).@"fn".return_type.?;
+            const LenRetType = unwrapSignature(@typeInfo(LenFn).@"fn".return_type.?);
             if (@typeInfo(LenRetType) == .error_union) {
                 const result = T.__len__(self.getDataConst()) catch |err| {
                     if (py.PyErr_Occurred() == null) {
@@ -88,7 +89,7 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
             const GetItemFn = @TypeOf(T.__getitem__);
             const fn_info = @typeInfo(GetItemFn).@"fn";
             const IndexType = fn_info.params[1].type.?;
-            const GetItemRetType = fn_info.return_type.?;
+            const GetItemRetType = unwrapSignature(fn_info.return_type.?);
 
             // Wrap negative index for unsigned types
             const idx = wrapIndexConst(IndexType, index, self) orelse return null;
@@ -129,7 +130,7 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 return 0;
             };
 
-            const ContainsRetType = fn_info.return_type.?;
+            const ContainsRetType = unwrapSignature(fn_info.return_type.?);
             if (@typeInfo(ContainsRetType) == .error_union) {
                 const result = T.__contains__(self.getDataConst(), elem) catch |err| {
                     if (py.PyErr_Occurred() == null) {
@@ -167,7 +168,7 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                     return -1;
                 };
 
-                const SetRetType = set_fn_info.return_type.?;
+                const SetRetType = unwrapSignature(set_fn_info.return_type.?);
                 if (@typeInfo(SetRetType) == .error_union) {
                     T.__setitem__(self.getData(), idx, zig_value) catch |err| {
                         if (py.PyErr_Occurred() == null) {
@@ -200,7 +201,7 @@ pub fn SequenceProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
                 // Wrap negative index for unsigned types
                 const del_idx = wrapIndexConst(DelIndexType, index, self) orelse return -1;
 
-                const DelRetType = del_fn_info.return_type.?;
+                const DelRetType = unwrapSignature(del_fn_info.return_type.?);
                 if (@typeInfo(DelRetType) == .error_union) {
                     T.__delitem__(self.getData(), del_idx) catch |err| {
                         if (py.PyErr_Occurred() == null) {

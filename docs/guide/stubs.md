@@ -33,6 +33,7 @@ PyOZ generates stubs for all exported items:
 | `[]const u8` | `str` |
 | `void` | `None` |
 | `?T` | `T \| None` |
+| `pyoz.Signature(?T, "U")` | `U` (user-defined override) |
 | `!T` | `T` |
 | `pyoz.Complex` | `complex` |
 | `pyoz.Date` | `datetime.date` |
@@ -109,6 +110,63 @@ Run mypy or pyright on your Python code:
 mypy my_script.py
 pyright my_script.py
 ```
+
+## Return Type Override (`Signature`)
+
+Sometimes the automatically inferred stub type doesn't match the intended Python-level API. The most common case: a function returns `?T` (optional) only to signal errors via `null`, but the Python caller never sees `None` — they see a raised exception instead. The stub would show `T | None` when it should just show `T`.
+
+Use `pyoz.Signature(T, "stub_string")` as the return type to override the stub annotation while preserving runtime behavior:
+
+```zig
+fn validate_positive(n: i64) pyoz.Signature(?i64, "int") {
+    if (n < 0) {
+        _ = pyoz.raiseValueError("must be non-negative");
+        return .{ .value = null };
+    }
+    return .{ .value = n };
+}
+```
+
+Generated stub:
+```python
+def validate_positive(arg0: int) -> int: ...
+```
+
+Without `Signature`, the stub would show `-> int | None`.
+
+### How It Works
+
+`Signature` is a comptime wrapper type. At runtime it's a struct with a single `.value` field — PyOZ unwraps it automatically, so Python never sees the wrapper. The second parameter (the string) is used verbatim as the return type annotation in the generated `.pyi` file.
+
+### Works Everywhere
+
+`Signature` works identically for module-level functions and class methods (instance, static, and class methods):
+
+```zig
+const Parser = struct {
+    pub fn parse(self: *const Parser, input: []const u8) pyoz.Signature(?Node, "Node") {
+        // null signals an error, not a None return
+        if (input.len == 0) {
+            _ = pyoz.raiseValueError("empty input");
+            return .{ .value = null };
+        }
+        return .{ .value = self.doParse(input) };
+    }
+};
+```
+
+Generated stub:
+```python
+def parse(self, arg0: str) -> Node: ...
+```
+
+### When to Use
+
+| Scenario | Without Signature | With Signature |
+|----------|-------------------|----------------|
+| `?T` where `null` = error | `T \| None` | Use `Signature(?T, "T")` |
+| Raw `*PyObject` return | `Any` | Use `Signature(*PyObject, "list[Node]")` |
+| Complex generic return | `Any` | Use `Signature(*PyObject, "dict[str, list[int]]")` |
 
 ## Limitations
 

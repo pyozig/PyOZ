@@ -8,6 +8,8 @@ const conversion = @import("../conversion.zig");
 const slots = @import("../python/slots.zig");
 const abi = @import("../abi.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -35,7 +37,7 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
         fn py_mp_length(self_obj: ?*py.PyObject) callconv(.c) py.Py_ssize_t {
             const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
             const LenFn = @TypeOf(T.__len__);
-            const LenRetType = @typeInfo(LenFn).@"fn".return_type.?;
+            const LenRetType = unwrapSignature(@typeInfo(LenFn).@"fn".return_type.?);
             if (@typeInfo(LenRetType) == .error_union) {
                 const result = T.__len__(self.getDataConst()) catch |err| {
                     if (py.PyErr_Occurred() == null) {
@@ -82,7 +84,7 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
                 return null;
             };
 
-            const GetItemRetType = fn_info.return_type.?;
+            const GetItemRetType = unwrapSignature(fn_info.return_type.?);
             if (@typeInfo(GetItemRetType) == .error_union) {
                 const result = T.__getitem__(self.getDataConst(), zig_key) catch |err| {
                     if (py.PyErr_Occurred() == null) {
@@ -149,7 +151,7 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
                     return -1;
                 };
 
-                const SetRetType = set_fn_info.return_type.?;
+                const SetRetType = unwrapSignature(set_fn_info.return_type.?);
                 if (@typeInfo(SetRetType) == .error_union) {
                     T.__setitem__(self.getData(), zig_key, zig_value) catch |err| {
                         if (py.PyErr_Occurred() == null) {
@@ -197,7 +199,7 @@ pub fn MappingProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Par
                     return -1;
                 };
 
-                const DelRetType = del_fn_info.return_type.?;
+                const DelRetType = unwrapSignature(del_fn_info.return_type.?);
                 if (@typeInfo(DelRetType) == .error_union) {
                     T.__delitem__(self.getData(), zig_key) catch |err| {
                         if (py.PyErr_Occurred() == null) {

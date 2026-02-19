@@ -9,8 +9,8 @@
 //!
 //! User-facing conventions for stub customization (all opt-in):
 //! - `pub const method__doc__: [*:0]const u8 = "..."` — method docstring
-//! - `pub const method__returns__: []const u8 = "..."` — override return type annotation
 //! - `pub const method__params__: []const u8 = "..."` — override parameter names (comma-separated)
+//! - `pyoz.Signature(T, "python_type")` as return type — override stub annotation
 
 const std = @import("std");
 const ref_mod = @import("ref.zig");
@@ -78,14 +78,9 @@ fn getParamName(comptime names_str: []const u8, comptime idx: usize) []const u8 
     }
 }
 
-/// Resolve the return type string for a method, checking for __returns__ override first.
-fn resolveReturnType(comptime name: []const u8, comptime fn_info: anytype, comptime ClassType: type) []const u8 {
+/// Resolve the return type string for a method from its function signature.
+fn resolveReturnType(comptime fn_info: anytype) []const u8 {
     comptime {
-        // Check for explicit return type override
-        if (@hasDecl(ClassType, name ++ "__returns__")) {
-            return asSlice(@field(ClassType, name ++ "__returns__"));
-        }
-        // Introspect from function signature
         if (fn_info.return_type) |ret| {
             const ret_info = @typeInfo(ret);
             if (ret_info == .error_union) {
@@ -104,6 +99,11 @@ fn resolveReturnType(comptime name: []const u8, comptime fn_info: anytype, compt
 
 /// Map a Zig type to its Python type annotation string
 pub fn zigTypeToPython(comptime T: type) []const u8 {
+    // Check for Signature wrapper first — use the user-provided stub string
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "_is_pyoz_signature")) {
+        return T.stub_type;
+    }
+
     const info = @typeInfo(T);
 
     return switch (info) {
@@ -483,6 +483,10 @@ fn detectImportsForType(comptime T: type) ImportFlags {
 
     // Check struct types for PyOZ markers
     if (info == .@"struct") {
+        // Unwrap Signature to detect imports for the inner type
+        if (@hasDecl(T, "_is_pyoz_signature")) {
+            return detectImportsForType(T.inner_type);
+        }
         return .{
             .datetime = @hasDecl(T, "_is_pyoz_datetime") or @hasDecl(T, "_is_pyoz_date") or
                 @hasDecl(T, "_is_pyoz_time") or @hasDecl(T, "_is_pyoz_timedelta"),
@@ -649,7 +653,6 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
 
             // Skip stub annotation declarations
             if (std.mem.endsWith(u8, decl.name, "__doc__")) continue;
-            if (std.mem.endsWith(u8, decl.name, "__returns__")) continue;
             if (std.mem.endsWith(u8, decl.name, "__params__")) continue;
 
             // Skip get_X/set_X that are used as property getters/setters
@@ -805,7 +808,7 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
                     cidx += 1;
                 }
             }
-            result = result ++ ") -> " ++ resolveReturnType("__call__", call_info, T) ++ ": ...\n";
+            result = result ++ ") -> " ++ resolveReturnType(call_info) ++ ": ...\n";
         }
 
         // __enter__ — introspect return type
@@ -955,8 +958,8 @@ fn generateMethodStub(comptime name: []const u8, comptime Fn: type, comptime Cla
 
         result = result ++ ") -> ";
 
-        // Return type — check for __returns__ override first
-        result = result ++ resolveReturnType(name, fn_info, ClassType);
+        // Return type
+        result = result ++ resolveReturnType(fn_info);
 
         if (doc) |d| {
             result = result ++ ":\n";

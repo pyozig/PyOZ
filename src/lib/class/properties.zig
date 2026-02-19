@@ -11,6 +11,8 @@ const py = @import("../python.zig");
 const conversion = @import("../conversion.zig");
 const ref_mod = @import("../ref.zig");
 
+const unwrapSignature = @import("../root.zig").unwrapSignature;
+
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 
@@ -251,7 +253,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                             py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for: " ++ field_name);
                             return -1;
                         };
-                        const RetType = setter_info.return_type orelse void;
+                        const RetType = unwrapSignature(setter_info.return_type orelse void);
                         if (@typeInfo(RetType) == .error_union) {
                             custom_setter(self.getData(), converted) catch |err| {
                                 if (py.PyErr_Occurred() == null) {
@@ -325,7 +327,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                         py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for property: " ++ prop_name);
                         return -1;
                     };
-                    const RetType = setter_info.return_type orelse void;
+                    const RetType = unwrapSignature(setter_info.return_type orelse void);
                     if (@typeInfo(RetType) == .error_union) {
                         setter(self.getData(), converted) catch |err| {
                             if (py.PyErr_Occurred() == null) {
@@ -407,7 +409,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                         py.PyErr_SetString(py.PyExc_TypeError(), "Failed to convert value for property: " ++ prop_name);
                         return -1;
                     };
-                    const RetType = setter_info.return_type orelse void;
+                    const RetType = unwrapSignature(setter_info.return_type orelse void);
                     if (@typeInfo(RetType) == .error_union) {
                         setter(self.getData(), converted) catch |err| {
                             if (py.PyErr_Occurred() == null) {

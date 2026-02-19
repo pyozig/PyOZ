@@ -276,6 +276,27 @@ return pyoz.owned(allocator, data);  // returns Owned([]const u8)
 
 Supports `!Owned(T)` (error union) and `?Owned(T)` (optional) return types.
 
+## Stub Return Type Override
+
+### `pyoz.Signature(T, "stub_string")`
+
+Override the `.pyi` stub return type annotation while preserving runtime behavior. `T` is the actual Zig return type; `"stub_string"` is written verbatim into the generated stub.
+
+```zig
+fn validate(n: i64) pyoz.Signature(?i64, "int") {
+    if (n < 0) return pyoz.raiseValueError("must be non-negative");
+    return .{ .value = n };
+}
+```
+
+At runtime, `Signature` is a struct with a `.value` field — PyOZ unwraps it automatically. Works for module-level functions and class methods (instance, static, class).
+
+| Usage | Stub Output |
+|-------|-------------|
+| `pyoz.Signature(?i64, "int")` | `-> int` |
+| `pyoz.Signature(?*PyObject, "list[Node]")` | `-> list[Node]` |
+| `pyoz.Signature(?Node, "Node")` | `-> Node` |
+
 ## Strong References
 
 ### `pyoz.Ref(T)`
