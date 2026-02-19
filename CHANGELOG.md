@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pyoz.Signature(T, "python_type")` -- stub return type override** - New comptime wrapper type that overrides the Python type annotation in generated `.pyi` stubs without affecting runtime behavior. Use this when the Zig return type doesn't map cleanly to the desired Python type, most commonly when `?T` is used for CPython exception signaling (returning `null` + `PyErr_SetString`) rather than representing Python `None`. For example, `fn probe() pyoz.Signature(?Dict, "dict[str, bool]")` generates `def probe() -> dict[str, bool]` instead of the incorrect `def probe() -> dict[str, bool] | None`. Also supports `pyoz.Signature(?void, "Never")` for functions that only raise. Works uniformly on module-level functions, class instance/static/class methods, `__call__`, `__new__`, and `allowThreads`/`allowThreadsTry`.
 - **`PyMemoryView_Check`** - Added type check function for `memoryview` objects, following the same `isTypeOrSubtype` pattern as other type checks. Uses `PyMemoryView_Type` which is part of the stable ABI since Python 3.2, so works across 3.8–3.13 in both normal and ABI3 modes.
 
+### Fixed
+- **Comptime branch quota exceeded with large modules** - Modules with many functions would fail to compile with `evaluation exceeded 1000 backwards branches` in `anyFuncUsesDateTime`/`anyFuncUsesDecimal`. Fixed by setting `@setEvalBranchQuota(std.math.maxInt(u32))` in both functions.
+
 ### Refactored
 - **Type check functions** - `PySet_Check`, `PyFrozenSet_Check`, `PyBytes_Check`, `PyByteArray_Check`, and `PyObject_TypeCheck` now use the shared `isTypeOrSubtype` helper for consistency.
 

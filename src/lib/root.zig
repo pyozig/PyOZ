@@ -489,6 +489,7 @@ fn usesDateTimeType(comptime T: type) bool {
 
 // Check if any function in the list uses Decimal types
 fn anyFuncUsesDecimal(comptime funcs_list: anytype) bool {
+    @setEvalBranchQuota(std.math.maxInt(u32));
     for (funcs_list) |f| {
         const Fn = @TypeOf(f.func);
         const fn_info = @typeInfo(Fn).@"fn";
@@ -508,6 +509,7 @@ fn anyFuncUsesDecimal(comptime funcs_list: anytype) bool {
 
 // Check if any function in the list uses DateTime types
 fn anyFuncUsesDateTime(comptime funcs_list: anytype) bool {
+    @setEvalBranchQuota(std.math.maxInt(u32));
     for (funcs_list) |f| {
         const Fn = @TypeOf(f.func);
         const fn_info = @typeInfo(Fn).@"fn";
