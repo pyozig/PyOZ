@@ -1834,8 +1834,6 @@ test "Signature - stub shows overridden type, not inferred type" {
     const stubs = stubs_opt orelse return error.SkipZigTest;
     defer std.testing.allocator.free(stubs);
 
-    std.debug.print("\n--- Extracted stubs ---\n{s}\n--- End stubs ---\n", .{stubs});
-
     // validate_positive (no Signature) should show `int | None`
     try std.testing.expect(std.mem.indexOf(u8, stubs, "def validate_positive(arg0: int) -> int | None") != null);
 
