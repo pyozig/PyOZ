@@ -121,6 +121,7 @@ pub const PyFrozenSet_Check = typecheck.PyFrozenSet_Check;
 pub const PyAnySet_Check = typecheck.PyAnySet_Check;
 pub const PyBytes_Check = typecheck.PyBytes_Check;
 pub const PyByteArray_Check = typecheck.PyByteArray_Check;
+pub const PyMemoryView_Check = typecheck.PyMemoryView_Check;
 pub const PyObject_TypeCheck = typecheck.PyObject_TypeCheck;
 pub const PyCallable_Check = typecheck.PyCallable_Check;
 
