@@ -503,6 +503,17 @@ pub fn hasOptionalParams(comptime Fn: type) bool {
     return false;
 }
 
+/// An explicit `pyoz.func(...)` entry whose function has ?T parameters and
+/// whose `.withParams(...)` names every parameter: it takes keywords, and the
+/// optional parameters may be omitted.
+pub fn isAutoKwargsEntry(comptime entry: anytype) bool {
+    if (!@hasField(@TypeOf(entry), "params")) return false;
+    const names = entry.params orelse return false;
+    const Fn = @TypeOf(entry.func);
+    if (isNamedKwargsFunc(Fn) or !hasOptionalParams(Fn)) return false;
+    return std.mem.count(u8, names, ",") + 1 == @typeInfo(Fn).@"fn".params.len;
+}
+
 // =============================================================================
 // Filtering
 // =============================================================================

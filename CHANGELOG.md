@@ -5,6 +5,15 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.6] - 2026-09-30
+
+### Added
+- **`pyoz.asyncThen(f, then)` and `pyoz.asyncMethodThen(f, then)`: async functions with a completion step.** The task still runs without Python; when it succeeds, `then(result, extra...)` runs on the event loop thread with Python attached, and the awaitable resolves to its result. `then`'s extra parameters follow the task's in the Python signature and may be `*pyoz.PyObject` / `?*pyoz.PyObject`, which PyOZ keeps alive until the step has run (and releases on cancellation). This covers work such as `await compile_async(grammar, classes=module)`, where the compiled result must be bound to Python objects.
+- **`pyoz.func(...).withParams(...)` makes `?T` parameters optional.** When the names cover every parameter, the optional ones may be omitted or passed by keyword, as `.from` functions already allowed. Before, every argument had to be passed positionally.
+
+### Fixed
+- **Async results that never reached Python were dropped without cleanup.** When an awaitable was cancelled after its task had finished (or while the task ignored cancellation), or the event loop was closed, the task's result was discarded: a PyOZ class returned by value never had `__del__` run, and a returned `*pyoz.PyObject` leaked its reference. PyOZ now releases such results once the task has been joined. This applies to `asyncFn`, `asyncMethod` and the new `asyncThen`.
+
 ## [0.13.5] - 2026-09-30
 
 ### Added

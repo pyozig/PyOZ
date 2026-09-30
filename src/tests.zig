@@ -4234,6 +4234,118 @@ test "asyncFn - class instances, copied arguments, error mappings, 8 params" {
     try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_async2_result"));
 }
 
+test "asyncThen - completion step on the loop thread, held objects, errors, cancellation" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import asyncio, gc, threading, weakref
+        \\class _PyozTag: pass
+        \\async def _pyoz_then():
+        \\    if await example.async_apply(21, lambda v: ("got", v)) != ("got", 42): return "result"
+        \\    # The optional object is omitted, positional, or a keyword
+        \\    if await example.async_apply(21, lambda v, x: v + x, 8) != 50: return "extra"
+        \\    if await example.async_apply(1, lambda v, x: v * x, extra=5) != 10: return "keyword"
+        \\    # The step runs on the event loop thread
+        \\    me = threading.get_ident()
+        \\    if not await example.async_apply(1, lambda v: threading.get_ident() == me): return "thread"
+        \\    # Exceptions: raised by the step, returned by it, and from the task (step skipped)
+        \\    called = []
+        \\    for make, exc, msg in (
+        \\        (lambda: example.async_apply(1, lambda v: 1 / 0), ZeroDivisionError, "division by zero"),
+        \\        (lambda: example.async_double_limited(10, 5), ValueError, "Value exceeds maximum of 1000"),
+        \\        (lambda: example.async_apply(-1, called.append), ValueError, "NegativeValue"),
+        \\    ):
+        \\        try:
+        \\            await make(); return "no error"
+        \\        except exc as e:
+        \\            if str(e) != msg: return "message: " + str(e)
+        \\    if called: return "step ran after a failed task"
+        \\    if await example.async_double_limited(10, 50) != 20: return "plain step"
+        \\    # Held objects: alive until the step has run, then released
+        \\    # (liveness through a weakref: sys.getrefcount is not comparable
+        \\    # between call sites on Python 3.14+)
+        \\    async def settle():
+        \\        for _ in range(100):
+        \\            if example.async_live_jobs() == 0: break
+        \\            await asyncio.sleep(0.01)
+        \\        await asyncio.sleep(0.02); gc.collect()
+        \\    tag = _PyozTag(); alive = weakref.ref(tag)
+        \\    fut = example.async_apply(3, lambda v, x: v, tag)
+        \\    del tag; gc.collect()
+        \\    if alive() is None: return "not held"
+        \\    await fut; del fut
+        \\    await settle()
+        \\    if alive() is not None: return "not released"
+        \\    # Cancellation: the step is skipped, the objects are released
+        \\    tag = _PyozTag(); alive = weakref.ref(tag)
+        \\    fut = example.async_apply(3, lambda v, x: called.append(v), tag); fut.cancel()
+        \\    del tag
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    del fut
+        \\    await settle()
+        \\    if called: return "step ran after cancel"
+        \\    if example.async_live_jobs() != 0: return "leaked jobs"
+        \\    if alive() is not None: return "cancel: still referenced by %r" % [type(r).__name__ for r in gc.get_referrers(alive())]
+        \\    return "ok"
+        \\_pyoz_then_result = asyncio.run(_pyoz_then())
+    );
+    try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_then_result"));
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_apply(n: int, callback: Any, /, extra: Any | None = None) -> Awaitable[Any | None]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_double_limited(n: int, limit: int) -> Awaitable[int]") != null);
+}
+
+test "async - a result that never reaches Python is cleaned up" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import asyncio, gc, time
+        \\async def _pyoz_deleted(base):
+        \\    # Cleanup runs on the supervisor or a later loop iteration: wait for it
+        \\    for _ in range(200):
+        \\        if example.del_counter_deleted_count() != base and example.async_live_jobs() == 0: break
+        \\        await asyncio.sleep(0.01)
+        \\    await asyncio.sleep(0.02)
+        \\    return example.del_counter_deleted_count() - base
+        \\async def _pyoz_dropped():
+        \\    count = example.del_counter_deleted_count
+        \\    # Delivered: __del__ runs when Python drops the object, once
+        \\    base = count()
+        \\    obj = await example.async_del_counter(0, 7)
+        \\    if obj.value != 7 or count() != base: return "delivered early"
+        \\    del obj; gc.collect()
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "delivered: %d" % n
+        \\    # Cancelled after the task finished: block the loop so the result
+        \\    # is ready but not yet delivered, then cancel
+        \\    base = count()
+        \\    fut = example.async_del_counter(0, 1)
+        \\    time.sleep(0.1); fut.cancel()
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "late cancel: %d" % n
+        \\    # Cancelled while running; the task returns a value anyway
+        \\    base = count()
+        \\    fut = example.async_del_counter(10000, 1); await asyncio.sleep(0.02); fut.cancel()
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "cancel while running: %d" % n
+        \\    return "ok"
+        \\_pyoz_dropped_result = asyncio.run(_pyoz_dropped())
+    );
+    try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_dropped_result"));
+}
+
 test "asyncMethod - borrowed self kept alive and released; copies are isolated" {
     const python = try initTestPython();
     try python.exec(

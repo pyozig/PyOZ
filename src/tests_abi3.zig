@@ -1777,6 +1777,23 @@ test "ABI3 - asyncFn works on the Limited API" {
     try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "_abi3_async"));
 }
 
+test "ABI3 - asyncThen completion step" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import asyncio
+        \\async def _abi3_then():
+        \\    a = await example_abi3.async_add_apply(20, 22, str)
+        \\    b = await example_abi3.async_add_apply(1, 2, lambda v, x: v * x, extra=5)
+        \\    try:
+        \\        await example_abi3.async_add_apply(1, 2, lambda v: 1 / 0); c = "no error"
+        \\    except ZeroDivisionError:
+        \\        c = "raised"
+        \\    return (a, b, c)
+        \\_abi3_then = repr(asyncio.run(_abi3_then()))
+    );
+    try std.testing.expectEqualStrings("('42', 15, 'raised')", try python.eval([]const u8, "_abi3_then"));
+}
+
 test "ABI3 - async protocols via PyType_FromSpec slots" {
     const python = try initTestPython();
     try python.exec(

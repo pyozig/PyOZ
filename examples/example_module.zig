@@ -2838,6 +2838,14 @@ fn del_counter_deleted_count() i64 {
     return del_counter_deleted.load(.monotonic);
 }
 
+/// Async task returning a value that owns something. It ignores cancellation
+/// and returns the value anyway: PyOZ must run __del__ on a result that never
+/// reaches Python.
+fn async_del_counter(io: std.Io, ms: i64, value: i64) DelCounter {
+    io.sleep(.fromMilliseconds(ms), .awake) catch {};
+    return .{ .value = value };
+}
+
 // ============================================================================
 // FlexPoint - demonstrates optional constructor arguments
 const FlexPoint = struct {
@@ -3170,6 +3178,28 @@ fn async_sum8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64) i6
     return a + b + c + d + e + f + g + h;
 }
 
+/// pyoz.asyncThen: the task doubles `n` without Python; its completion step
+/// runs on the event loop thread with Python attached and passes the result
+/// to a Python callable. `callback` and `extra` are kept alive until then.
+fn async_double(io: std.Io, n: i64) !i64 {
+    try io.sleep(.fromMilliseconds(1), .awake);
+    if (n < 0) return error.NegativeValue;
+    return n * 2;
+}
+
+fn async_apply_then(value: i64, callback: *pyoz.PyObject, extra: ?*pyoz.PyObject) ?*pyoz.PyObject {
+    const arg = pyoz.py.PyLong_FromLongLong(value) orelse return null;
+    defer pyoz.py.Py_DecRef(arg);
+    // A Python exception raised by the callback reaches the awaiter
+    return pyoz.py.c.PyObject_CallFunctionObjArgs(callback, arg, extra, @as(?*pyoz.PyObject, null));
+}
+
+/// A completion step can also take plain values and return an error.
+fn async_limit_then(value: i64, limit: i64) !i64 {
+    if (value > limit) return error.ValueTooLarge;
+    return value;
+}
+
 /// Frozen class: its async method *borrows* self (kept alive until joined).
 const FrozenVec = struct {
     pub const __frozen__ = true;
@@ -3386,6 +3416,7 @@ pub const Example = pyoz.module(.{
     .funcs = &.{
         pyoz.func("make_del_counter", make_del_counter, "Return a DelCounter by value"),
         pyoz.func("del_counter_deleted_count", del_counter_deleted_count, "How many DelCounter instances were deleted"),
+        pyoz.func("async_del_counter", pyoz.asyncFn(async_del_counter), "await: a DelCounter after ms, even if cancelled").withParams("ms, value"),
         pyoz.func("add", add, "Add two integers").withParams("a, b"),
         pyoz.func("multiply", multiply, "Multiply two floats"),
         pyoz.func("divide", divide, "Divide two numbers (raises error if b=0)"),
@@ -3529,6 +3560,8 @@ pub const Example = pyoz.module(.{
         pyoz.func("async_scale_point", pyoz.asyncFn(async_scale_point), "await: scaled Point").withParams("point, factor"),
         pyoz.func("async_checked", pyoz.asyncFn(async_checked), "await: error mappings apply"),
         pyoz.func("async_sum8", pyoz.asyncFn(async_sum8), "await: 8 parameters"),
+        pyoz.func("async_apply", pyoz.asyncThen(async_double, async_apply_then), "await: callback(2*n[, extra]), called on the event loop").withParams("n, callback, extra"),
+        pyoz.func("async_double_limited", pyoz.asyncThen(async_double, async_limit_then), "await: 2*n, ValueError above limit").withParams("n, limit"),
         pyoz.func("test_fmt_long", test_fmt_long, "Test pyoz.fmt with a >4KB message"),
         pyoz.func("test_fmt_return", test_fmt_return, "Test pyoz.fmt as a return type"),
         // Ref(T) test functions

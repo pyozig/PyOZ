@@ -1770,6 +1770,14 @@ fn async_add(io: std.Io, a: i64, b: i64) !i64 {
     return a + b;
 }
 
+/// Completion step (pyoz.asyncThen): runs on the event loop thread with Python
+/// attached, and passes the sum to a Python callable.
+fn async_add_then(sum: i64, callback: *pyoz.PyObject, extra: ?*pyoz.PyObject) ?*pyoz.PyObject {
+    const arg = pyoz.py.PyLong_FromLongLong(sum) orelse return null;
+    defer pyoz.py.Py_DecRef(arg);
+    return pyoz.py.c.PyObject_CallFunctionObjArgs(callback, arg, extra, @as(?*pyoz.PyObject, null));
+}
+
 /// Async protocols on the Limited API (tp_as_async via PyType_FromSpec slots).
 /// `async for` yields n-1 .. 0; each item comes from a std.Io task, and the
 /// task returning null ends the iteration.
@@ -1817,6 +1825,7 @@ pub const Abi3Example = pyoz.module(.{
         pyoz.func("del_counter_deleted_count", del_counter_deleted_count, "How many DelCounter instances were deleted"),
         // Basic arithmetic
         pyoz.func("async_add", pyoz.asyncFn(async_add), "await: a+b (ABI3)"),
+        pyoz.func("async_add_apply", pyoz.asyncThen(async_add, async_add_then), "await: callback(a+b[, extra])").withParams("a, b, callback, extra"),
         pyoz.func("add", add, "Add two integers"),
         pyoz.func("multiply", multiply, "Multiply two floats"),
         pyoz.func("divide", divide, "Divide two floats (returns None if divisor is 0)"),

@@ -126,6 +126,9 @@ stubs and `help()`:
 pyoz.func("fetch", pyoz.asyncFn(fetch), "Sleep, then add").withParams("delay_ms, a, b"),
 ```
 
+When every parameter is named and the function has `?T` parameters, those are
+optional and can be passed by keyword (`fetch(5, timeout=2)`).
+
 For methods, use `pub const method__params__ = "a, b";` on the class.
 
 ### `pyoz.kwfunc(name, fn, doc)`
@@ -161,6 +164,20 @@ fn fetch(io: std.Io, ms: i64, a: i64, b: i64) !i64 {
     return a + b;
 }
 .funcs = &.{ pyoz.func("fetch", pyoz.asyncFn(fetch), "Sleep, then add") },
+```
+
+### `pyoz.asyncThen(f, then)`
+
+`asyncFn` with a completion step: when `f` succeeds, `then(result, extra...)`
+runs on the event loop thread with Python attached, and the awaitable resolves
+to its result. The extra parameters follow `f`'s in the Python signature and may
+be `*pyoz.PyObject` / `?*pyoz.PyObject` (kept alive until `then` has run).
+`pyoz.asyncMethodThen(f, then)` is the method form.
+
+```zig
+fn compileImpl(grammar: []const u8) !Parser { ... }
+fn bindImpl(parser: Parser, classes: ?*pyoz.PyObject) !Parser { ... }
+pyoz.func("compile_async", pyoz.asyncThen(compileImpl, bindImpl), "...").withParams("grammar, classes"),
 ```
 
 ### `pyoz.asyncMethod(f)`

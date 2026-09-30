@@ -85,6 +85,74 @@ names in stubs and `help()`.
 
 Tested with asyncio's default loop and with **uvloop**.
 
+### Results that are never delivered
+
+A task can produce a value that Python never receives: the awaitable was
+cancelled while the task ignored cancellation, it was cancelled after the task
+had finished but before the event loop delivered the result, or the loop was
+closed. PyOZ then releases the value, with Python attached:
+
+- a struct with `__del__` (a PyOZ class returned by value): `__del__` runs on it
+- a `*pyoz.PyObject`: its reference is dropped
+- optionals of those, when non-null
+
+Other result types own nothing PyOZ knows about. If a task returns, say, a
+plain struct holding an allocation, give it a `__del__`.
+
+## Completion step
+
+The task runs without Python, so it cannot take or create Python objects.
+`pyoz.asyncThen(f, then)` adds a second function that runs **on the event loop
+thread with Python attached** once the task has succeeded. The awaitable
+resolves to what `then` returns:
+
+```zig
+// Worker task: no Python
+fn compileImpl(grammar: []const u8) !Parser { ... }
+
+// Event loop thread: any Python API is allowed
+fn bindImpl(parser: Parser, classes: ?*pyoz.PyObject) !Parser {
+    var p = parser;
+    if (classes) |obj| try p.bind(obj);
+    return p;
+}
+
+.funcs = &.{
+    pyoz.func("compile_async", pyoz.asyncThen(compileImpl, bindImpl), "Compile, then bind")
+        .withParams("grammar, classes"),
+},
+```
+
+```python
+parser = await mymod.compile_async(text)
+parser = await mymod.compile_async(text, classes=my_ast_module)
+```
+
+- `then`'s first parameter is the task's result. Its other parameters follow
+  the task's in the Python signature (8 in total) and may be
+  `*pyoz.PyObject` / `?*pyoz.PyObject`, or any type `asyncFn` accepts.
+- Python objects are borrowed by `then`: PyOZ keeps them alive until it has
+  run and releases them afterwards, also when the awaitable is cancelled.
+- `then` is skipped when the task fails or the awaitable is cancelled.
+- `then` may return an error (mapped like any other), or raise a Python
+  exception and return `null` from an optional return type.
+- It runs on the event loop, so keep it short: do the heavy work in the task.
+
+Who cleans up the task's result:
+
+| Case | Owner |
+|------|-------|
+| `then` is called | `then`. If it fails, it must release the value it was given before returning the error or `null` |
+| `then` is skipped (cancelled, also after the task has finished) | PyOZ: see [Results that are never delivered](#results-that-are-never-delivered) |
+| The task fails | Nobody: there is no value |
+
+With `.withParams(...)` naming every parameter, `?T` parameters are optional
+and can be passed by keyword, as in the example above. Required parameters
+stay positional-only: `compile_async(text, classes=mod)` works,
+`compile_async(grammar=text)` does not.
+
+`pyoz.asyncMethodThen(f, then)` is the same for [async methods](#async-methods).
+
 ## Async methods
 
 `pyoz.asyncMethod` works like `asyncFn` for instance methods. The task runs on
