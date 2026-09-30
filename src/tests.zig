@@ -4237,7 +4237,7 @@ test "asyncFn - class instances, copied arguments, error mappings, 8 params" {
 test "asyncThen - completion step on the loop thread, held objects, errors, cancellation" {
     const python = try initTestPython();
     try python.exec(
-        \\import asyncio, gc, sys, threading
+        \\import asyncio, gc, threading, weakref
         \\class _PyozTag: pass
         \\async def _pyoz_then():
         \\    if await example.async_apply(21, lambda v: ("got", v)) != ("got", 42): return "result"
@@ -4261,23 +4261,33 @@ test "asyncThen - completion step on the loop thread, held objects, errors, canc
         \\    if called: return "step ran after a failed task"
         \\    if await example.async_double_limited(10, 50) != 20: return "plain step"
         \\    # Held objects: alive until the step has run, then released
-        \\    tag = _PyozTag(); base = sys.getrefcount(tag)
+        \\    # (liveness through a weakref: sys.getrefcount is not comparable
+        \\    # between call sites on Python 3.14+)
+        \\    async def settle():
+        \\        for _ in range(100):
+        \\            if example.async_live_jobs() == 0: break
+        \\            await asyncio.sleep(0.01)
+        \\        await asyncio.sleep(0.02); gc.collect()
+        \\    tag = _PyozTag(); alive = weakref.ref(tag)
         \\    fut = example.async_apply(3, lambda v, x: v, tag)
-        \\    if sys.getrefcount(tag) != base + 1: return "not held"
-        \\    await fut
-        \\    if sys.getrefcount(tag) != base: return "not released"
+        \\    del tag; gc.collect()
+        \\    if alive() is None: return "not held"
+        \\    await fut; del fut
+        \\    await settle()
+        \\    if alive() is not None: return "not released"
         \\    # Cancellation: the step is skipped, the objects are released
+        \\    tag = _PyozTag(); alive = weakref.ref(tag)
         \\    fut = example.async_apply(3, lambda v, x: called.append(v), tag); fut.cancel()
+        \\    del tag
         \\    try:
         \\        await fut; return "not cancelled"
         \\    except asyncio.CancelledError:
         \\        pass
-        \\    for _ in range(100):
-        \\        if example.async_live_jobs() == 0: break
-        \\        await asyncio.sleep(0.01)
+        \\    del fut
+        \\    await settle()
         \\    if called: return "step ran after cancel"
         \\    if example.async_live_jobs() != 0: return "leaked jobs"
-        \\    if sys.getrefcount(tag) != base: return "cancel: %d extra refs, referrers %r" % (sys.getrefcount(tag) - base, [type(r).__name__ for r in gc.get_referrers(tag)])
+        \\    if alive() is not None: return "cancel: still referenced by %r" % [type(r).__name__ for r in gc.get_referrers(alive())]
         \\    return "ok"
         \\_pyoz_then_result = asyncio.run(_pyoz_then())
     );
