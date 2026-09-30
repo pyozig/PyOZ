@@ -492,6 +492,30 @@ fn isHeldObject(comptime T: type) bool {
     return T == *PyObject or T == ?*PyObject;
 }
 
+/// A task result that owns something: a Python reference, or a struct with
+/// `__del__` (a PyOZ class by value).
+fn needsDrop(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .optional => |o| needsDrop(o.child),
+        .pointer => T == *PyObject,
+        .@"struct" => @hasDecl(T, "__del__"),
+        else => false,
+    };
+}
+
+/// Release a result that will never reach Python. Requires an attached thread.
+fn dropValue(comptime T: type, value: T) void {
+    switch (@typeInfo(T)) {
+        .optional => |o| if (value) |v| dropValue(o.child, v),
+        .pointer => py.Py_DecRef(value),
+        .@"struct" => {
+            var copy = value;
+            T.__del__(&copy);
+        },
+        else => {},
+    }
+}
+
 /// `then` is the completion step of `asyncThen` / `asyncMethodThen`, or `{}`.
 pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: anytype) type {
     const info = @typeInfo(@TypeOf(f)).@"fn";
@@ -561,6 +585,8 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
         self_val: if (self_mode == .copy) SelfT else void = undefined,
         self_ptr: if (self_mode == .borrow) *const SelfT else void = undefined,
         result: Ret = undefined,
+        /// `result` is set and nobody has taken ownership of it yet.
+        result_live: bool = false,
         /// The payload's Python objects hold a reference (see `releaseHeld`).
         held: bool = false,
 
@@ -587,16 +613,32 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
             if (has_alloc) call_args[ai] = job.arena.allocator();
             inline for (0..n_work) |i| call_args[skip + i] = job.payload[i];
 
-            const result = @call(.auto, f, call_args);
+            job.result = @call(.auto, f, call_args);
+            job.result_live = true;
 
-            // If Python already cancelled, the supervisor owns cleanup: just return.
+            // If Python already cancelled, the supervisor owns cleanup (and
+            // drops the result once it has joined this task): just return.
             if (job.common.state.cmpxchgStrong(Common.running, Common.posting, .acq_rel, .acquire) != null) return;
-            job.result = result;
             job.common.hub.push(&job.common); // no Python here (except to wake an idle loop)
         }
 
+        /// The result never reached Python (cancelled, or the loop is closed):
+        /// release what it owns. Called by the supervisor after the task has
+        /// been joined, so nothing else can touch the job.
+        fn dropResult(job: *Self) void {
+            if (!job.result_live) return;
+            job.result_live = false;
+            if (comptime !needsDrop(WorkPayload)) return;
+            const value = if (@typeInfo(Ret) == .error_union) job.result catch return else job.result;
+            if (@hasDecl(c, "Py_IsFinalizing") and c.Py_IsFinalizing() != 0) return;
+            const g = c.PyGILState_Ensure();
+            defer c.PyGILState_Release(g);
+            dropValue(WorkPayload, value);
+        }
+
         fn resolve(common: *Common) void {
-            if (isTrue(callMethod(common.pyfut, .done, null))) return; // cancelled after completion
+            // Cancelled after completion: the supervisor drops the result
+            if (isTrue(callMethod(common.pyfut, .done, null))) return;
             var is_exc = false;
             const convert = common.convert orelse &Converting(Conv, &.{}).convert;
             const value = convert(common, &is_exc) orelse blk: {
@@ -621,6 +663,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
             return struct {
                 fn convert(common: *Common, is_exc: *bool) ?*PyObject {
                     const job: *Self = @fieldParentPtr("common", common);
+                    job.result_live = false; // from here the value belongs to `then` / Python
                     const work_value = if (@typeInfo(Ret) == .error_union) job.result catch |err| {
                         is_exc.* = true;
                         return makeException(err, error_mappings);
@@ -656,6 +699,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
         fn finish(common: *Common, i: Io, cancel: bool) void {
             const job: *Self = @fieldParentPtr("common", common);
             if (cancel) job.future.cancel(i) else job.future.await(i);
+            job.dropResult();
             common.releaseKeepaliveDetached(); // task has finished: safe now
             common.unref();
         }

@@ -2838,6 +2838,14 @@ fn del_counter_deleted_count() i64 {
     return del_counter_deleted.load(.monotonic);
 }
 
+/// Async task returning a value that owns something. It ignores cancellation
+/// and returns the value anyway: PyOZ must run __del__ on a result that never
+/// reaches Python.
+fn async_del_counter(io: std.Io, ms: i64, value: i64) DelCounter {
+    io.sleep(.fromMilliseconds(ms), .awake) catch {};
+    return .{ .value = value };
+}
+
 // ============================================================================
 // FlexPoint - demonstrates optional constructor arguments
 const FlexPoint = struct {
@@ -3408,6 +3416,7 @@ pub const Example = pyoz.module(.{
     .funcs = &.{
         pyoz.func("make_del_counter", make_del_counter, "Return a DelCounter by value"),
         pyoz.func("del_counter_deleted_count", del_counter_deleted_count, "How many DelCounter instances were deleted"),
+        pyoz.func("async_del_counter", pyoz.asyncFn(async_del_counter), "await: a DelCounter after ms, even if cancelled").withParams("ms, value"),
         pyoz.func("add", add, "Add two integers").withParams("a, b"),
         pyoz.func("multiply", multiply, "Multiply two floats"),
         pyoz.func("divide", divide, "Divide two numbers (raises error if b=0)"),

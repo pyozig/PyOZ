@@ -4289,6 +4289,52 @@ test "asyncThen - completion step on the loop thread, held objects, errors, canc
     try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_double_limited(n: int, limit: int) -> Awaitable[int]") != null);
 }
 
+test "async - a result that never reaches Python is cleaned up" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import asyncio, gc, time
+        \\async def _pyoz_deleted(base):
+        \\    # Cleanup runs on the supervisor or a later loop iteration: wait for it
+        \\    for _ in range(200):
+        \\        if example.del_counter_deleted_count() != base and example.async_live_jobs() == 0: break
+        \\        await asyncio.sleep(0.01)
+        \\    await asyncio.sleep(0.02)
+        \\    return example.del_counter_deleted_count() - base
+        \\async def _pyoz_dropped():
+        \\    count = example.del_counter_deleted_count
+        \\    # Delivered: __del__ runs when Python drops the object, once
+        \\    base = count()
+        \\    obj = await example.async_del_counter(0, 7)
+        \\    if obj.value != 7 or count() != base: return "delivered early"
+        \\    del obj; gc.collect()
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "delivered: %d" % n
+        \\    # Cancelled after the task finished: block the loop so the result
+        \\    # is ready but not yet delivered, then cancel
+        \\    base = count()
+        \\    fut = example.async_del_counter(0, 1)
+        \\    time.sleep(0.1); fut.cancel()
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "late cancel: %d" % n
+        \\    # Cancelled while running; the task returns a value anyway
+        \\    base = count()
+        \\    fut = example.async_del_counter(10000, 1); await asyncio.sleep(0.02); fut.cancel()
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    n = await _pyoz_deleted(base)
+        \\    if n != 1: return "cancel while running: %d" % n
+        \\    return "ok"
+        \\_pyoz_dropped_result = asyncio.run(_pyoz_dropped())
+    );
+    try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_dropped_result"));
+}
+
 test "asyncMethod - borrowed self kept alive and released; copies are isolated" {
     const python = try initTestPython();
     try python.exec(
