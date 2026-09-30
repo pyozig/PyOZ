@@ -106,6 +106,8 @@ const Common = struct {
     /// Returned from `__anext__`: a null `?T` result raises StopAsyncIteration
     /// instead of resolving to None. Set on the loop thread before any drain.
     null_stops: bool = false,
+    /// `asyncThen`: drops the Python objects held for the completion step.
+    release_held: ?*const fn (*Common) void = null,
 
     const running = 0;
     const posting = 1;
@@ -119,6 +121,7 @@ const Common = struct {
     fn releasePy(self: *Common) void {
         py.Py_DecRef(self.loop);
         py.Py_DecRef(self.pyfut);
+        if (self.release_held) |release| release(self);
     }
 
     /// Drop the keep-alive reference. Requires an attached thread, and must only
@@ -485,7 +488,12 @@ pub fn isAsyncPending(comptime T: type) bool {
 
 const SelfMode = enum { none, copy, borrow };
 
-pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
+fn isHeldObject(comptime T: type) bool {
+    return T == *PyObject or T == ?*PyObject;
+}
+
+/// `then` is the completion step of `asyncThen` / `asyncMethodThen`, or `{}`.
+pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: anytype) type {
     const info = @typeInfo(@TypeOf(f)).@"fn";
     const P = info.params;
     const self_n: usize = @intFromBool(is_method);
@@ -513,11 +521,29 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
     const skip = ai + @intFromBool(has_alloc);
     const Ret = info.return_type.?;
 
-    const vis: [P.len - skip]type = blk: {
-        var v: [P.len - skip]type = undefined;
+    const WorkPayload = if (@typeInfo(Ret) == .error_union) @typeInfo(Ret).error_union.payload else Ret;
+
+    // Completion step: `then(result, extra...)`. Its extra parameters follow
+    // the task's own in the Python signature.
+    const has_then = @TypeOf(then) != void;
+    const TP = if (has_then) @typeInfo(@TypeOf(then)).@"fn".params else &[_]std.builtin.Type.Fn.Param{};
+    if (has_then and (TP.len == 0 or TP[0].type.? != WorkPayload)) @compileError(
+        "pyoz.asyncThen: the completion function's first parameter must be the task's result, " ++ @typeName(WorkPayload),
+    );
+    const extra = if (has_then) TP[1..] else TP;
+    const ThenRet = if (has_then) @typeInfo(@TypeOf(then)).@"fn".return_type.? else void;
+    const n_work = P.len - skip;
+
+    const vis: [n_work + extra.len]type = blk: {
+        var v: [n_work + extra.len]type = undefined;
         for (P[skip..], 0..) |p, i| {
             if (!isCopyable(p.type.?)) @compileError("pyoz.asyncFn: unsupported parameter type " ++ @typeName(p.type.?) ++
                 " (supported: ints, floats, bools, enums, optionals, []const u8, pointer-free structs incl. PyOZ classes by value)");
+            v[i] = p.type.?;
+        }
+        for (extra, n_work..) |p, i| {
+            if (!isHeldObject(p.type.?) and !isCopyable(p.type.?)) @compileError("pyoz.asyncThen: unsupported parameter type " ++
+                @typeName(p.type.?) ++ " (supported: *pyoz.PyObject, ?*pyoz.PyObject and the types pyoz.asyncFn accepts)");
             v[i] = p.type.?;
         }
         break :blk v;
@@ -535,6 +561,20 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
         self_val: if (self_mode == .copy) SelfT else void = undefined,
         self_ptr: if (self_mode == .borrow) *const SelfT else void = undefined,
         result: Ret = undefined,
+        /// The payload's Python objects hold a reference (see `releaseHeld`).
+        held: bool = false,
+
+        /// Drop the references to the Python objects passed to the completion
+        /// step. Runs with an attached thread, from `Common.releasePy`.
+        fn releaseHeld(common: *Common) void {
+            const job: *Self = @fieldParentPtr("common", common);
+            if (!job.held) return;
+            job.held = false;
+            inline for (n_work..vis.len) |i| {
+                if (comptime vis[i] == *PyObject) py.Py_DecRef(job.payload[i]);
+                if (comptime vis[i] == ?*PyObject) if (job.payload[i]) |o| py.Py_DecRef(o);
+            }
+        }
 
         fn run(job: *Self) void {
             var call_args: std.meta.ArgsTuple(@TypeOf(f)) = undefined;
@@ -545,7 +585,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
             }
             if (has_io) call_args[self_n] = io();
             if (has_alloc) call_args[ai] = job.arena.allocator();
-            inline for (0..vis.len) |i| call_args[skip + i] = job.payload[i];
+            inline for (0..n_work) |i| call_args[skip + i] = job.payload[i];
 
             const result = @call(.auto, f, call_args);
 
@@ -568,16 +608,37 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
             if (r) |o| py.Py_DecRef(o) else c.PyErr_Clear();
         }
 
-        pub const ResultPayload = if (@typeInfo(Ret) == .error_union) @typeInfo(Ret).error_union.payload else Ret;
+        /// What the awaitable resolves to: the completion step's result if
+        /// there is one, otherwise the task's.
+        pub const ResultPayload = if (!has_then)
+            WorkPayload
+        else if (@typeInfo(ThenRet) == .error_union)
+            @typeInfo(ThenRet).error_union.payload
+        else
+            ThenRet;
 
         pub fn Converting(comptime C: type, comptime error_mappings: []const errors_mod.ErrorMapping) type {
             return struct {
                 fn convert(common: *Common, is_exc: *bool) ?*PyObject {
                     const job: *Self = @fieldParentPtr("common", common);
-                    const value = if (@typeInfo(Ret) == .error_union) job.result catch |err| {
+                    const work_value = if (@typeInfo(Ret) == .error_union) job.result catch |err| {
                         is_exc.* = true;
                         return makeException(err, error_mappings);
                     } else job.result;
+                    const value: ResultPayload = if (!has_then) work_value else blk: {
+                        // Loop thread, Python attached: the step may use any Python API.
+                        var then_args: std.meta.ArgsTuple(@TypeOf(then)) = undefined;
+                        then_args[0] = work_value;
+                        inline for (n_work..vis.len, 1..) |i, j| then_args[j] = job.payload[i];
+                        const out = @call(.auto, then, then_args);
+                        const unwrapped = if (@typeInfo(ThenRet) == .error_union) out catch |err| {
+                            is_exc.* = true;
+                            return makeException(err, error_mappings);
+                        } else out;
+                        // A step that raised and returned null: deliver its exception
+                        if (c.PyErr_Occurred() != null) return null;
+                        break :blk unwrapped;
+                    };
                     if (@typeInfo(ResultPayload) == .optional and value == null and common.null_stops) {
                         is_exc.* = true;
                         return c.PyObject_CallObject(c.PyExc_StopAsyncIteration, null);
@@ -646,7 +707,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
             }
             // Copy arguments: Python-owned buffers may be freed before the task runs.
             inline for (0..vis.len) |i| {
-                job.payload[i] = if (comptime @typeInfo(vis[i]) == .pointer)
+                job.payload[i] = if (comptime @typeInfo(vis[i]) == .pointer and !isHeldObject(vis[i]))
                     job.arena.allocator().dupe(u8, payload[i]) catch {
                         abandon(job);
                         _ = c.PyErr_NoMemory();
@@ -654,6 +715,15 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool) type {
                     }
                 else
                     payload[i];
+            }
+            // Objects for the completion step stay alive until it has run
+            if (has_then) {
+                inline for (n_work..vis.len) |i| {
+                    if (comptime vis[i] == *PyObject) py.Py_IncRef(job.payload[i]);
+                    if (comptime vis[i] == ?*PyObject) if (job.payload[i]) |o| py.Py_IncRef(o);
+                }
+                job.held = true;
+                job.common.release_held = releaseHeld;
             }
 
             // Done-callback owns one job reference through its capsule.
@@ -827,8 +897,33 @@ fn fetchException() ?*PyObject {
 }
 
 /// Wrap `f` as a Python function returning an `asyncio.Future`. See module docs.
-pub fn asyncFn(comptime f: anytype) @TypeOf(AsyncFn(f, false).call) {
-    return AsyncFn(f, false).call;
+pub fn asyncFn(comptime f: anytype) @TypeOf(AsyncFn(f, false, {}).call) {
+    return AsyncFn(f, false, {}).call;
+}
+
+/// `asyncFn` with a completion step. `f` runs on a worker task as usual; when
+/// it succeeds, `then(result, extra...)` runs on the event loop thread with
+/// Python attached, and the awaitable resolves to what `then` returns:
+///
+///     fn compileImpl(grammar: []const u8) !Parser { ... }            // worker, no Python
+///     fn bindImpl(parser: Parser, classes: ?*pyoz.PyObject) !Parser { ... } // Python allowed
+///     pyoz.func("compile_async", pyoz.asyncThen(compileImpl, bindImpl), "...")
+///
+///     parser = await mymod.compile_async(text, classes)
+///
+/// The Python signature is `f`'s parameters followed by `then`'s extra ones.
+/// Those may be `*pyoz.PyObject` / `?*pyoz.PyObject` (borrowed by `then`, kept
+/// alive until it has run) or any type `asyncFn` accepts. `then` is skipped if
+/// `f` fails or the awaitable is cancelled. It may return an error, or raise a
+/// Python exception and return null from an optional. Keep it short: it runs
+/// on the event loop.
+pub fn asyncThen(comptime f: anytype, comptime then: anytype) @TypeOf(AsyncFn(f, false, then).call) {
+    return AsyncFn(f, false, then).call;
+}
+
+/// `asyncMethod` with a completion step; see `asyncThen`.
+pub fn asyncMethodThen(comptime f: anytype, comptime then: anytype) @TypeOf(AsyncFn(f, true, then).call) {
+    return AsyncFn(f, true, then).call;
 }
 
 /// Type returned (inside an error union) by calling `asyncFn(f)` from Zig, for
@@ -837,7 +932,7 @@ pub fn asyncFn(comptime f: anytype) @TypeOf(AsyncFn(f, false).call) {
 ///     const fetch = pyoz.asyncFn(fetchImpl);
 ///     pub fn __anext__(self: *Pages) !?pyoz.Future(fetchImpl) { ... return try fetch(n); }
 pub fn Future(comptime f: anytype) type {
-    return AsyncPending(AsyncFn(f, false));
+    return AsyncPending(AsyncFn(f, false, {}));
 }
 
 /// Async instance method. The first parameter decides how `self` reaches the
@@ -852,6 +947,6 @@ pub fn Future(comptime f: anytype) type {
 ///
 ///     fn normImpl(self: *const Vec, io: std.Io) !f64 { ... }
 ///     pub const norm = pyoz.asyncMethod(normImpl);
-pub fn asyncMethod(comptime f: anytype) @TypeOf(AsyncFn(f, true).call) {
-    return AsyncFn(f, true).call;
+pub fn asyncMethod(comptime f: anytype) @TypeOf(AsyncFn(f, true, {}).call) {
+    return AsyncFn(f, true, {}).call;
 }

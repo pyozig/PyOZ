@@ -1543,7 +1543,12 @@ pub fn generateModuleStubs(comptime config: anytype) []const u8 {
         // Functions
         const funcs = if (@hasField(@TypeOf(config), "funcs")) config.funcs else &.{};
         for (funcs) |f| {
-            const mode: KwargsMode = if ((@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) or from_mod.isNamedKwargsFunc(@TypeOf(f.func))) .args_struct else .positional;
+            const mode: KwargsMode = if ((@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) or from_mod.isNamedKwargsFunc(@TypeOf(f.func)))
+                .args_struct
+            else if (from_mod.isAutoKwargsEntry(f))
+                .auto_kwargs
+            else
+                .positional;
             result = result ++ generateFunctionStub(
                 std.mem.span(f.name),
                 @TypeOf(f.func),

@@ -4234,6 +4234,61 @@ test "asyncFn - class instances, copied arguments, error mappings, 8 params" {
     try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_async2_result"));
 }
 
+test "asyncThen - completion step on the loop thread, held objects, errors, cancellation" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import asyncio, gc, sys, threading
+        \\class _PyozTag: pass
+        \\async def _pyoz_then():
+        \\    if await example.async_apply(21, lambda v: ("got", v)) != ("got", 42): return "result"
+        \\    # The optional object is omitted, positional, or a keyword
+        \\    if await example.async_apply(21, lambda v, x: v + x, 8) != 50: return "extra"
+        \\    if await example.async_apply(1, lambda v, x: v * x, extra=5) != 10: return "keyword"
+        \\    # The step runs on the event loop thread
+        \\    me = threading.get_ident()
+        \\    if not await example.async_apply(1, lambda v: threading.get_ident() == me): return "thread"
+        \\    # Exceptions: raised by the step, returned by it, and from the task (step skipped)
+        \\    called = []
+        \\    for make, exc, msg in (
+        \\        (lambda: example.async_apply(1, lambda v: 1 / 0), ZeroDivisionError, "division by zero"),
+        \\        (lambda: example.async_double_limited(10, 5), ValueError, "Value exceeds maximum of 1000"),
+        \\        (lambda: example.async_apply(-1, called.append), ValueError, "NegativeValue"),
+        \\    ):
+        \\        try:
+        \\            await make(); return "no error"
+        \\        except exc as e:
+        \\            if str(e) != msg: return "message: " + str(e)
+        \\    if called: return "step ran after a failed task"
+        \\    if await example.async_double_limited(10, 50) != 20: return "plain step"
+        \\    # Held objects: alive until the step has run, then released
+        \\    tag = _PyozTag(); base = sys.getrefcount(tag)
+        \\    fut = example.async_apply(3, lambda v, x: v, tag)
+        \\    if sys.getrefcount(tag) != base + 1: return "not held"
+        \\    await fut
+        \\    if sys.getrefcount(tag) != base: return "not released"
+        \\    # Cancellation: the step is skipped, the objects are released
+        \\    fut = example.async_apply(3, lambda v, x: called.append(v), tag); fut.cancel()
+        \\    try:
+        \\        await fut; return "not cancelled"
+        \\    except asyncio.CancelledError:
+        \\        pass
+        \\    for _ in range(100):
+        \\        if example.async_live_jobs() == 0: break
+        \\        await asyncio.sleep(0.01)
+        \\    if called or sys.getrefcount(tag) != base: return "cancel"
+        \\    if example.async_live_jobs() != 0: return "leaked jobs"
+        \\    return "ok"
+        \\_pyoz_then_result = asyncio.run(_pyoz_then())
+    );
+    try std.testing.expectEqualStrings("ok", try python.eval([]const u8, "_pyoz_then_result"));
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_apply(n: int, callback: Any, /, extra: Any | None = None) -> Awaitable[Any | None]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_double_limited(n: int, limit: int) -> Awaitable[int]") != null);
+}
+
 test "asyncMethod - borrowed self kept alive and released; copies are isolated" {
     const python = try initTestPython();
     try python.exec(

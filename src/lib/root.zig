@@ -316,6 +316,10 @@ const aio_mod = @import("aio.zig");
 pub const asyncFn = aio_mod.asyncFn;
 /// Async instance method; see aio.asyncMethod for the `self` contract.
 pub const asyncMethod = aio_mod.asyncMethod;
+/// `asyncFn` / `asyncMethod` with a completion step that runs on the event
+/// loop thread with Python attached; see aio.asyncThen.
+pub const asyncThen = aio_mod.asyncThen;
+pub const asyncMethodThen = aio_mod.asyncMethodThen;
 /// Result type of calling `asyncFn(f)` from Zig (e.g. inside `__anext__`).
 pub const Future = aio_mod.Future;
 /// The process-wide `std.Io` runtime used by async functions.
@@ -1123,7 +1127,10 @@ pub fn module(comptime config: anytype) type {
                 // pyoz.kwfunc, or pyoz.func given a function taking pyoz.Args(T)
                 const is_named_kwargs = (@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) or
                     from_mod.isNamedKwargsFunc(@TypeOf(f.func));
-                const kwargs_mode: stubs_mod.KwargsMode = if (is_named_kwargs) .args_struct else .positional;
+                // ?T parameters with names from .withParams(): keywords, and the
+                // optional ones may be omitted (as for .from functions)
+                const is_auto_kwargs = !is_named_kwargs and from_mod.isAutoKwargsEntry(f);
+                const kwargs_mode: stubs_mod.KwargsMode = if (is_named_kwargs) .args_struct else if (is_auto_kwargs) .auto_kwargs else .positional;
                 const ml_doc = stubs_mod.buildMlDoc(
                     std.mem.span(f.name),
                     @TypeOf(f.func),
@@ -1137,6 +1144,13 @@ pub fn module(comptime config: anytype) type {
                     m[i] = .{
                         .ml_name = f.name,
                         .ml_meth = @ptrCast(wrappers_mod.wrapFunctionWithNamedKeywordsAndErrorMapping(f.func, class_infos, all_error_mappings)),
+                        .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
+                        .ml_doc = ml_doc,
+                    };
+                } else if (is_auto_kwargs) {
+                    m[i] = .{
+                        .ml_name = f.name,
+                        .ml_meth = @ptrCast(wrappers_mod.wrapAutoKeywordFunctionWithErrorMapping(f.func, class_infos, f.params.?, all_error_mappings)),
                         .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                         .ml_doc = ml_doc,
                     };

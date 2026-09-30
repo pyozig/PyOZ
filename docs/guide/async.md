@@ -85,6 +85,51 @@ names in stubs and `help()`.
 
 Tested with asyncio's default loop and with **uvloop**.
 
+## Completion step
+
+The task runs without Python, so it cannot take or create Python objects.
+`pyoz.asyncThen(f, then)` adds a second function that runs **on the event loop
+thread with Python attached** once the task has succeeded. The awaitable
+resolves to what `then` returns:
+
+```zig
+// Worker task: no Python
+fn compileImpl(grammar: []const u8) !Parser { ... }
+
+// Event loop thread: any Python API is allowed
+fn bindImpl(parser: Parser, classes: ?*pyoz.PyObject) !Parser {
+    var p = parser;
+    if (classes) |obj| try p.bind(obj);
+    return p;
+}
+
+.funcs = &.{
+    pyoz.func("compile_async", pyoz.asyncThen(compileImpl, bindImpl), "Compile, then bind")
+        .withParams("grammar, classes"),
+},
+```
+
+```python
+parser = await mymod.compile_async(text)
+parser = await mymod.compile_async(text, classes=my_ast_module)
+```
+
+- `then`'s first parameter is the task's result. Its other parameters follow
+  the task's in the Python signature (8 in total) and may be
+  `*pyoz.PyObject` / `?*pyoz.PyObject`, or any type `asyncFn` accepts.
+- Python objects are borrowed by `then`: PyOZ keeps them alive until it has
+  run and releases them afterwards, also when the awaitable is cancelled.
+- `then` is skipped when the task fails or the awaitable is cancelled. If the
+  task's result owns resources, those cases do not reach `then`.
+- `then` may return an error (mapped like any other), or raise a Python
+  exception and return `null` from an optional return type.
+- It runs on the event loop, so keep it short: do the heavy work in the task.
+
+With `.withParams(...)` naming every parameter, `?T` parameters are optional
+and can be passed by keyword, as in the example above.
+
+`pyoz.asyncMethodThen(f, then)` is the same for [async methods](#async-methods).
+
 ## Async methods
 
 `pyoz.asyncMethod` works like `asyncFn` for instance methods. The task runs on
