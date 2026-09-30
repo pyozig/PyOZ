@@ -249,6 +249,17 @@ fn releaseValue(comptime F: type, v: *F) void {
 /// Generate a Python-callable wrapper for a Zig function with named keyword arguments.
 /// The function should take Args(SomeStruct) as its parameter.
 pub fn wrapFunctionWithNamedKeywords(comptime zig_func: anytype, comptime class_infos: []const ClassInfo) PyCFunctionWithKeywords {
+    return wrapFunctionWithNamedKeywordsAndErrorMapping(zig_func, class_infos, &.{});
+}
+
+/// `wrapFunctionWithNamedKeywords` applying the module's error mappings to
+/// returned Zig errors, like `wrapFunctionWithErrorMapping` does for
+/// positional functions.
+pub fn wrapFunctionWithNamedKeywordsAndErrorMapping(
+    comptime zig_func: anytype,
+    comptime class_infos: []const ClassInfo,
+    comptime error_mappings: []const ErrorMapping,
+) PyCFunctionWithKeywords {
     const Conv = Converter(class_infos);
     const Fn = @TypeOf(zig_func);
     const fn_info = @typeInfo(Fn).@"fn";
@@ -282,15 +293,13 @@ pub fn wrapFunctionWithNamedKeywords(comptime zig_func: anytype, comptime class_
             const rt_info = @typeInfo(RT);
             if (rt_info == .error_union) {
                 if (result) |value| {
+                    if (comptime aio.isAsyncPending(@TypeOf(value))) return value.bind(Conv, error_mappings);
                     return Conv.toPy(@TypeOf(value), value);
                 } else |err| {
-                    // Don't overwrite an exception already set by Python, e.g.
-                    // KeyboardInterrupt from checkSignals.
-                    if (py.PyErr_Occurred() == null) {
-                        const msg = @errorName(err);
-                        py.PyErr_SetString(mapErrorToExc(err), msg.ptr);
-                    }
-
+                    // Module mappings first, then well-known error names; an
+                    // exception already set by Python (e.g. KeyboardInterrupt
+                    // from checkSignals) is kept.
+                    setErrorFromMapping(error_mappings, err);
                     return null;
                 }
             } else {
@@ -391,6 +400,17 @@ pub fn wrapAutoKeywordFunction(
     comptime zig_func: anytype,
     comptime class_infos: []const ClassInfo,
     comptime param_names_str: []const u8,
+) PyCFunctionWithKeywords {
+    return wrapAutoKeywordFunctionWithErrorMapping(zig_func, class_infos, param_names_str, &.{});
+}
+
+/// `wrapAutoKeywordFunction` applying the module's error mappings to returned
+/// Zig errors.
+pub fn wrapAutoKeywordFunctionWithErrorMapping(
+    comptime zig_func: anytype,
+    comptime class_infos: []const ClassInfo,
+    comptime param_names_str: []const u8,
+    comptime error_mappings: []const ErrorMapping,
 ) PyCFunctionWithKeywords {
     const Conv = Converter(class_infos);
     const Fn = @TypeOf(zig_func);
@@ -507,21 +527,15 @@ pub fn wrapAutoKeywordFunction(
             const rt_info = @typeInfo(RT);
             if (rt_info == .error_union) {
                 if (result) |value| {
+                    if (comptime aio.isAsyncPending(@TypeOf(value))) return value.bind(Conv, error_mappings);
                     return Conv.toPy(@TypeOf(value), value);
                 } else |err| {
-                    setError(err);
+                    setErrorFromMapping(error_mappings, err);
                     return null;
                 }
             } else {
                 return Conv.toPy(RT, result);
             }
-        }
-
-        fn setError(err: anyerror) void {
-            // Don't overwrite an exception already set by Python
-            if (py.PyErr_Occurred() != null) return;
-            const msg = @errorName(err);
-            py.PyErr_SetString(mapErrorToExc(err), msg.ptr);
         }
     }.wrapper;
 }

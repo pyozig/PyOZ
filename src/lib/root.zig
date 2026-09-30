@@ -1120,7 +1120,9 @@ pub fn module(comptime config: anytype) type {
             // Explicit funcs
             for (funcs, 0..) |f, i| {
                 // Check if this is a keyword-argument function using Args(T)
-                const is_named_kwargs = @hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs;
+                // pyoz.kwfunc, or pyoz.func given a function taking pyoz.Args(T)
+                const is_named_kwargs = (@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) or
+                    from_mod.isNamedKwargsFunc(@TypeOf(f.func));
                 const kwargs_mode: stubs_mod.KwargsMode = if (is_named_kwargs) .args_struct else .positional;
                 const ml_doc = stubs_mod.buildMlDoc(
                     std.mem.span(f.name),
@@ -1134,7 +1136,7 @@ pub fn module(comptime config: anytype) type {
                 if (is_named_kwargs) {
                     m[i] = .{
                         .ml_name = f.name,
-                        .ml_meth = @ptrCast(wrapFunctionWithNamedKeywords(f.func, class_infos)),
+                        .ml_meth = @ptrCast(wrappers_mod.wrapFunctionWithNamedKeywordsAndErrorMapping(f.func, class_infos, all_error_mappings)),
                         .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                         .ml_doc = ml_doc,
                     };
@@ -1190,14 +1192,14 @@ pub fn module(comptime config: anytype) type {
                         if (is_named) {
                             m[from_idx] = .{
                                 .ml_name = from_mod.comptimeStrZ(d.name),
-                                .ml_meth = @ptrCast(wrapFunctionWithNamedKeywords(func_val, class_infos)),
+                                .ml_meth = @ptrCast(wrappers_mod.wrapFunctionWithNamedKeywordsAndErrorMapping(func_val, class_infos, all_error_mappings)),
                                 .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                                 .ml_doc = ml_doc,
                             };
                         } else if (is_auto_kwargs) {
                             m[from_idx] = .{
                                 .ml_name = from_mod.comptimeStrZ(d.name),
-                                .ml_meth = @ptrCast(wrapAutoKeywordFunction(func_val, class_infos, param_names.?)),
+                                .ml_meth = @ptrCast(wrappers_mod.wrapAutoKeywordFunctionWithErrorMapping(func_val, class_infos, param_names.?, all_error_mappings)),
                                 .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                                 .ml_doc = ml_doc,
                             };
@@ -1632,14 +1634,14 @@ pub fn module(comptime config: anytype) type {
                                     if (sub_is_named) {
                                         break :blk_m py.c.PyMethodDef{
                                             .ml_name = sub_func_name,
-                                            .ml_meth = @ptrCast(wrapFunctionWithNamedKeywords(sub_func_val, class_infos)),
+                                            .ml_meth = @ptrCast(wrappers_mod.wrapFunctionWithNamedKeywordsAndErrorMapping(sub_func_val, class_infos, all_error_mappings)),
                                             .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                                             .ml_doc = sub_ml_doc,
                                         };
                                     } else if (sub_is_auto_kwargs) {
                                         break :blk_m py.c.PyMethodDef{
                                             .ml_name = sub_func_name,
-                                            .ml_meth = @ptrCast(wrapAutoKeywordFunction(sub_func_val, class_infos, sub_param_names.?)),
+                                            .ml_meth = @ptrCast(wrappers_mod.wrapAutoKeywordFunctionWithErrorMapping(sub_func_val, class_infos, sub_param_names.?, all_error_mappings)),
                                             .ml_flags = py.METH_VARARGS | py.METH_KEYWORDS,
                                             .ml_doc = sub_ml_doc,
                                         };

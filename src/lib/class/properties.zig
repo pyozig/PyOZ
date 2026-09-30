@@ -7,6 +7,7 @@
 //! and are NOT exposed to Python as properties or __init__ arguments.
 
 const std = @import("std");
+const accessors = @import("accessors.zig");
 const py = @import("../python.zig");
 const ft = @import("threading.zig");
 const conversion = @import("../conversion.zig");
@@ -53,13 +54,11 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
         };
         // Check if struct has custom getter or setter
         pub fn hasCustomGetter(comptime field_name: []const u8) bool {
-            const getter_name = "get_" ++ field_name;
-            return @hasDecl(T, getter_name);
+            return accessors.hasGetter(T, field_name);
         }
 
         pub fn hasCustomSetter(comptime field_name: []const u8) bool {
-            const setter_name = "set_" ++ field_name;
-            return @hasDecl(T, setter_name);
+            return accessors.hasSetter(T, field_name);
         }
 
         // Count computed properties (get_X style)
@@ -67,9 +66,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
             const type_decls = @typeInfo(T).@"struct".decls;
             var count: usize = 0;
             for (type_decls) |decl| {
-                if (decl.name.len > 4 and std.mem.startsWith(u8, decl.name, "get_")) {
-                    // Must be a function, not a constant (e.g. get_error__doc__)
-                    if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
+                if (accessors.isGetter(T, decl.name)) {
                     const prop_name = decl.name[4..];
                     var is_field = false;
                     for (fields) |field| {
@@ -173,9 +170,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
             var comp_idx: usize = public_fields_count;
             const type_decls = @typeInfo(T).@"struct".decls;
             for (type_decls) |decl| {
-                if (decl.name.len > 4 and std.mem.startsWith(u8, decl.name, "get_")) {
-                    // Must be a function, not a constant (e.g. get_error__doc__)
-                    if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
+                if (accessors.isGetter(T, decl.name)) {
                     const prop_name = decl.name[4..];
                     var is_field = false;
                     for (fields) |field| {
@@ -332,7 +327,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
 
         fn generateComputedSetter(comptime prop_name: []const u8) ?*const fn (?*py.PyObject, ?*py.PyObject, ?*anyopaque) callconv(.c) c_int {
             const setter_name = "set_" ++ prop_name;
-            if (!@hasDecl(T, setter_name)) {
+            if (!accessors.hasSetter(T, prop_name)) {
                 return null;
             }
             return struct {

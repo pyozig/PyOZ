@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyoz"
-version = "0.13.3"
+version = "0.13.4"
 description = "Python extension modules in Zig, made easy"
 readme = "README.md"
 license = "MIT"

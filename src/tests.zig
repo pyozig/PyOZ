@@ -2032,6 +2032,63 @@ test "pyoz.Args - help() shows real defaults, stubs expand the fields" {
     try std.testing.expect(std.mem.indexOf(u8, stubs, "<<ARGS>>") == null);
 }
 
+test "pyoz.func detects pyoz.Args and takes keyword arguments" {
+    const python = try initTestPython();
+    try std.testing.expectEqual(@as(i64, 6), try python.eval(i64, "example.scale_named(n=3)"));
+    try std.testing.expectEqual(@as(i64, 15), try python.eval(i64, "example.scale_named(3, by=5)"));
+    try python.exec("import inspect");
+    try std.testing.expectEqualStrings("(n, by=2)", try python.eval([]const u8, "str(inspect.signature(example.scale_named))"));
+}
+
+test "keyword functions use the module's error mappings" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+    );
+    const cases = [_][2][]const u8{
+        // pyoz.kwfunc: mapErrorMsg("ValueTooLarge", .ValueError, ...)
+        .{ "example.checked_named(n=5000)", "ValueError: Value exceeds maximum of 1000" },
+        // .from with pyoz.Args: ErrorMap OutOfRange -> ValueError with a message
+        .{ "example.checked_sqrt(value=-1.0)", "ValueError: Value is out of range" },
+        // .from with an optional (keyword-capable) parameter
+        .{ "example.checked_div(1, b=0)", "ValueError: Value is out of range" },
+    };
+    for (cases) |c| {
+        var buf: [256]u8 = undefined;
+        const expr = try std.fmt.bufPrintZ(&buf, "_pyoz_exc(lambda: {s})", .{c[0]});
+        try std.testing.expectEqualStrings(c[1], try python.eval([]const u8, expr));
+    }
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.checked_div(10, b=2)"));
+}
+
+test "get_X/set_X with other parameter lists are methods, not properties" {
+    const python = try initTestPython();
+    try python.exec("sh = example.Shelf(4)");
+    try std.testing.expectEqual(@as(i64, 8), try python.eval(i64, "sh.double")); // get_double(self): property
+    try std.testing.expectEqual(@as(i64, 7), try python.eval(i64, "sh.get_item(3)")); // method
+    try python.exec("sh.set_range(1, 2)"); // method
+    try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "sh.base"));
+    try std.testing.expect(try python.eval(bool, "not hasattr(example.Shelf, 'item') and not hasattr(example.Shelf, 'range')"));
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    for ([_][]const u8{
+        "    def get_item(self, arg0: int) -> int: ...",
+        "    def set_range(self, arg0: int, arg1: int) -> None: ...",
+        "    @property\n    def double(self) -> int: ...",
+    }) |needle| {
+        if (std.mem.indexOf(u8, stubs, needle) == null) {
+            std.debug.print("missing stub: {s}\n", .{needle});
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
 test "fn greet_named - fromPy exception not overwritten" {
     const python = try initTestPython();
 

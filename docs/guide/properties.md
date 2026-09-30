@@ -35,6 +35,10 @@ const BoundedValue = struct {
 };
 ```
 
+The convention applies to functions with the accessor signature: a getter is
+`get_X(self)` and a setter is `set_X(self, value)`. Functions with those names
+but other parameters, such as `get_item(self, index)`, are ordinary methods.
+
 For **computed properties** (no backing field), just define `get_X` without a matching field:
 
 ```zig

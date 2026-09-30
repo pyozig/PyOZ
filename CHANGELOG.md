@@ -5,6 +5,15 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.4] - 2026-09-30
+
+### Fixed
+- **`pyoz.func` with a `pyoz.Args(...)` function could not be called.** It compiled, but was registered as positional-only: keywords raised `takes no keyword arguments` and positional calls failed too. `pyoz.func` now detects `pyoz.Args` like `.from` and class methods do, so `pyoz.kwfunc` is optional.
+- **Keyword functions ignored the module's `.error_mappings`.** Errors from `pyoz.kwfunc`, and from `.from` functions taking `pyoz.Args` or optional `?T` parameters, only used the built-in name-based fallback, so a mapped error surfaced as `RuntimeError` with the raw error name. They now use the same mappings as positional functions (new `wrapFunctionWithNamedKeywordsAndErrorMapping` and `wrapAutoKeywordFunctionWithErrorMapping`; the existing wrappers keep their signatures).
+
+### Changed
+- **`get_X` / `set_X` are properties only with the accessor signature**: `get_X(self)` and `set_X(self, value)`. A function such as `get_item(self, index)` is now an ordinary method; previously it failed to compile with an error inside `properties.zig`. The rule lives in one place (`class/accessors.zig`) shared by the property table, the method table and stub generation.
+
 ## [0.13.3] - 2026-09-29
 
 ### Fixed

@@ -199,6 +199,22 @@ pub const ComputeError = pyoz.Exception(.RuntimeError, "A computation failed une
 // Error mapping marker (auto-detected: pyoz.ErrorMap → merged error mappings)
 // ============================================================================
 
+/// Keyword function (pyoz.Args) whose error uses the module's error mappings.
+pub fn checked_sqrt(args: pyoz.Args(struct { value: f64 })) !f64 {
+    if (args.value.value < 0) return error.OutOfRange;
+    return @sqrt(args.value.value);
+}
+
+/// Optional parameter (keyword-capable) whose error uses the error mappings.
+/// The names are declared because example_abi3 loads this namespace without
+/// withSource, which is where they would otherwise come from.
+pub const checked_div__params__ = "a, b";
+pub fn checked_div(a: i64, b: ?i64) !i64 {
+    const d = b orelse 1;
+    if (d == 0) return error.OutOfRange;
+    return @divTrunc(a, d);
+}
+
 pub const __errors__ = pyoz.ErrorMap(.{
     .{ "OutOfRange", .ValueError, "Value is out of range" },
     .{ "ComputeFailed", .RuntimeError },
