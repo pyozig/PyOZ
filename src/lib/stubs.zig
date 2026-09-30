@@ -17,6 +17,7 @@ const ref_mod = @import("ref.zig");
 const from_mod = @import("from.zig");
 const source_parser_mod = @import("source_parser.zig");
 const awaitable = @import("awaitable.zig");
+const accessors = @import("class/accessors.zig");
 
 /// How keyword arguments are handled for a function.
 pub const KwargsMode = enum {
@@ -37,23 +38,7 @@ fn isPrivateField(comptime name: []const u8) bool {
 
 /// Check if a declaration is a get_X/set_X used as a property accessor.
 fn isPropertyAccessor(comptime T: type, comptime decl_name: []const u8) bool {
-    const fields = @typeInfo(T).@"struct".fields;
-    // get_X is a property getter if it's a function
-    if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "get_")) {
-        if (@typeInfo(@TypeOf(@field(T, decl_name))) == .@"fn") return true;
-    }
-    // set_X is a property setter if get_X exists as a function, or X is a struct field
-    if (decl_name.len > 4 and std.mem.startsWith(u8, decl_name, "set_")) {
-        if (@typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn") return false;
-        const prop_name = decl_name[4..];
-        if (@hasDecl(T, "get_" ++ prop_name)) {
-            if (@typeInfo(@TypeOf(@field(T, "get_" ++ prop_name))) == .@"fn") return true;
-        }
-        for (fields) |field| {
-            if (std.mem.eql(u8, field.name, prop_name)) return true;
-        }
-    }
-    return false;
+    return accessors.isAccessor(T, decl_name);
 }
 
 /// Coerce a comptime string declaration to []const u8.
@@ -1008,12 +993,10 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
 
         // Computed properties (get_X / set_X)
         for (struct_info.decls) |decl| {
-            if (std.mem.startsWith(u8, decl.name, "get_")) {
-                // Must be a function, not a constant (e.g. get_error__doc__)
-                if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
+            if (accessors.isGetter(T, decl.name)) {
                 const prop_name = decl.name[4..];
                 // Check if there's a corresponding setter
-                const has_setter = @hasDecl(T, "set_" ++ prop_name);
+                const has_setter = accessors.hasSetter(T, prop_name);
 
                 const getter_fn = @field(T, decl.name);
                 const getter_info = @typeInfo(@TypeOf(getter_fn)).@"fn";
@@ -1499,7 +1482,7 @@ pub fn generateModuleStubs(comptime config: anytype) []const u8 {
         // Functions
         const funcs = if (@hasField(@TypeOf(config), "funcs")) config.funcs else &.{};
         for (funcs) |f| {
-            const mode: KwargsMode = if (@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) .args_struct else .positional;
+            const mode: KwargsMode = if ((@hasField(@TypeOf(f), "is_named_kwargs") and f.is_named_kwargs) or from_mod.isNamedKwargsFunc(@TypeOf(f.func))) .args_struct else .positional;
             result = result ++ generateFunctionStub(
                 std.mem.span(f.name),
                 @TypeOf(f.func),

@@ -3297,6 +3297,43 @@ const AsyncResource = struct {
     }
 };
 
+// ----------------------------------------------------------------------------
+// Keyword functions, error mappings and the get_X / set_X convention
+// ----------------------------------------------------------------------------
+
+/// Registered with plain pyoz.func: pyoz.Args is detected, so it takes keywords.
+fn scale_named(args: pyoz.Args(struct { n: i64, by: i64 = 2 })) i64 {
+    return args.value.n * args.value.by;
+}
+
+/// Errors from keyword functions go through the module's error mappings
+/// (ValueTooLarge -> ValueError with a custom message).
+fn checked_named(args: pyoz.Args(struct { n: i64 })) !i64 {
+    if (args.value.n > 1000) return error.ValueTooLarge;
+    return args.value.n;
+}
+
+/// `get_X(self)` is a property getter and `set_X(self, value)` a setter; with
+/// any other parameter list they are ordinary methods.
+const Shelf = struct {
+    base: i64,
+
+    /// Property `double`
+    pub fn get_double(self: *const Shelf) i64 {
+        return self.base * 2;
+    }
+
+    /// Method: takes an argument, so it is not a getter
+    pub fn get_item(self: *const Shelf, index: i64) i64 {
+        return self.base + index;
+    }
+
+    /// Method: two values, so it is not a setter
+    pub fn set_range(self: *Shelf, lo: i64, hi: i64) void {
+        self.base = lo + hi;
+    }
+};
+
 fn async_live_jobs() usize {
     return pyoz.asyncLiveJobs();
 }
@@ -3455,6 +3492,8 @@ pub const Example = pyoz.module(.{
         pyoz.func("async_fail", pyoz.asyncFn(async_fail), "await: raises ValueError"),
         pyoz.func("async_sum", pyoz.asyncFn(async_sum), "await: CPU-bound sum"),
         pyoz.func("async_live_jobs", async_live_jobs, "Async jobs not yet cleaned up"),
+        pyoz.func("scale_named", scale_named, "n * by, with keyword arguments via pyoz.func"),
+        pyoz.kwfunc("checked_named", checked_named, "Returns n; error mappings apply"),
         pyoz.func("async_scale_point", pyoz.asyncFn(async_scale_point), "await: scaled Point").withParams("point, factor"),
         pyoz.func("async_checked", pyoz.asyncFn(async_checked), "await: error mappings apply"),
         pyoz.func("async_sum8", pyoz.asyncFn(async_sum8), "await: 8 parameters"),
@@ -3469,6 +3508,7 @@ pub const Example = pyoz.module(.{
         pyoz.class("BoundedValue", BoundedValue),
         pyoz.class("FrozenVec", FrozenVec),
         pyoz.class("AsyncCounter", AsyncCounter),
+        pyoz.class("Shelf", Shelf),
         pyoz.class("Countdown", Countdown),
         pyoz.class("AsyncPages", AsyncPages),
         pyoz.class("Delayed", Delayed),

@@ -42,6 +42,11 @@ fn greet(args: pyoz.Args(GreetArgs)) []const u8 {
 
 In Python: `greet("World")`, `greet("World", "Hi")`, or `greet("World", greeting="Hi", times=3)`
 
+`pyoz.func` works too: a function whose only parameter is `pyoz.Args(T)` is
+detected and registered with keyword arguments either way. Errors returned
+from keyword functions go through the module's `.error_mappings`, like
+positional functions.
+
 Struct fields with defaults become optional keyword arguments. Fields without defaults are required.
 
 ## Return Types
