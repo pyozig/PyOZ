@@ -3,7 +3,7 @@
 
 pub const major: u8 = 0;
 pub const minor: u8 = 13;
-pub const patch: u8 = 6;
+pub const patch: u8 = 7;
 
 /// Pre-release identifier (e.g., "alpha", "beta", "rc1", or null for release)
 pub const pre_release: ?[]const u8 = null;

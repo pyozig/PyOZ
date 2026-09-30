@@ -4300,6 +4300,39 @@ test "asyncThen - completion step on the loop thread, held objects, errors, canc
     try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_double_limited(n: int, limit: int) -> Awaitable[int]") != null);
 }
 
+test "async - pyoz.Signature return types resolve" {
+    const python = try initTestPython();
+    // These used to leave the awaitable pending forever, hence the timeouts
+    try python.exec(
+        \\import asyncio
+        \\async def _pyoz_sig():
+        \\    async def run(make):
+        \\        try:
+        \\            return await asyncio.wait_for(make(), 5)
+        \\        except asyncio.TimeoutError:
+        \\            return "hung"
+        \\        except Exception as e:
+        \\            return "%s: %s" % (type(e).__name__, e)
+        \\    return [
+        \\        await run(lambda: example.async_double_signed(4, False)),
+        \\        await run(lambda: example.async_double_signed(4, True)),
+        \\        await run(lambda: example.async_signed(4)),
+        \\        await run(lambda: example.async_signed(-1)),
+        \\    ]
+        \\_pyoz_sig_result = repr(asyncio.run(_pyoz_sig()))
+    );
+    try std.testing.expectEqualStrings(
+        "[8, 'ValueError: step failed', 5, 'ValueError: NegativeValue']",
+        try python.eval([]const u8, "_pyoz_sig_result"),
+    );
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_double_signed(n: int, fail: bool) -> Awaitable[int]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def async_signed(n: int) -> Awaitable[int]") != null);
+}
+
 test "async - a result that never reaches Python is cleaned up" {
     const python = try initTestPython();
     try python.exec(
