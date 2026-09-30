@@ -271,9 +271,9 @@ fn run_hook(callback: pyoz.Callable(void), value: i64) bool {
 | Both | `*pyoz.PyObject` | Any Python object (advanced) |
 | Input only | `*const T`, `*T` | Class instances |
 | Input only | `pyoz.Callable(T)` | Functions, lambdas, any callable |
-| Input only | `[N]T` | list (exact size) |
+| Input only | `[N]T` | list or tuple (exact size) |
 | Output only | Slices, Dict, Set | list, dict, set |
-| Output only | Anonymous struct | tuple |
+| Both | Zig tuple `struct { T, U }` | tuple (exact size) |
 | Output only | `pyoz.Owned(T)` | Same as `T` (frees backing memory) |
 
 ## Next Steps

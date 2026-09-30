@@ -199,6 +199,17 @@ pub const ComputeError = pyoz.Exception(.RuntimeError, "A computation failed une
 // Error mapping marker (auto-detected: pyoz.ErrorMap → merged error mappings)
 // ============================================================================
 
+/// A class with a custom constructor. With pyoz.withSource the parameter names
+/// of __new__ come from this source, so Interval(start=2, length=3) works.
+pub const Interval = struct {
+    lo: i64,
+    hi: i64,
+
+    pub fn __new__(start: i64, length: ?i64) Interval {
+        return .{ .lo = start, .hi = start + (length orelse 1) };
+    }
+};
+
 /// Keyword function (pyoz.Args) whose error uses the module's error mappings.
 pub fn checked_sqrt(args: pyoz.Args(struct { value: f64 })) !f64 {
     if (args.value.value < 0) return error.OutOfRange;

@@ -692,6 +692,33 @@ pub fn Converter(comptime class_infos: []const class_mod.ClassInfo) type {
                         return (Wrapper.unwrapConst(obj) orelse return error.TypeError).*;
                     }
                 }
+
+                // Zig tuple (`struct { i64, f64 }`) from a Python tuple of the
+                // same length: the counterpart of toPy's tuple conversion.
+                if (info.@"struct".is_tuple) {
+                    const tuple_fields = info.@"struct".fields;
+                    if (!py.PyTuple_Check(obj)) {
+                        py.PyErr_SetString(py.PyExc_TypeError(), std.fmt.comptimePrint("expected a tuple of {d} items", .{tuple_fields.len}));
+                        return error.TypeError;
+                    }
+                    const len = py.PyTuple_Size(obj);
+                    if (len != tuple_fields.len) {
+                        var buf: [96]u8 = undefined;
+                        const msg = std.fmt.bufPrintZ(&buf, "expected {d} items, got {d}", .{ tuple_fields.len, len }) catch "wrong number of items";
+                        py.PyErr_SetString(py.PyExc_ValueError(), msg);
+                        return error.WrongArgumentCount;
+                    }
+                    var result: T = undefined;
+                    inline for (tuple_fields, 0..) |field, i| {
+                        const item = py.PyTuple_GetItem(obj, @intCast(i)) orelse return error.InvalidArgument;
+                        result[i] = fromPy(field.type, item) catch |err| {
+                            if (py.PyErr_Occurred() == null)
+                                py.PyErr_SetString(py.PyExc_TypeError(), std.fmt.comptimePrint("tuple item {d} has the wrong type", .{i}));
+                            return err;
+                        };
+                    }
+                    return result;
+                }
             }
 
             return switch (info) {

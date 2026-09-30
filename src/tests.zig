@@ -2089,6 +2089,70 @@ test "get_X/set_X with other parameter lists are methods, not properties" {
     }
 }
 
+test "constructors accept keyword arguments by name" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+    );
+    // Field-based constructor
+    try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "example.Diagnostic(1, line=3).line"));
+    try std.testing.expectEqual(@as(i64, 7), try python.eval(i64, "example.Diagnostic(line=9, severity=7).severity"));
+    // __new__ with declared parameter names; an omitted optional stays null
+    try std.testing.expectEqual(@as(i64, 10), try python.eval(i64, "example.Span(range=(1, 5), scale=2).hi"));
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.Span(range=(1, 5)).hi"));
+    // __new__ in a .from class loaded with pyoz.withSource: names come from the source
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.Interval(start=2, length=3).hi"));
+    try std.testing.expectEqual(@as(i64, 3), try python.eval(i64, "example.Interval(start=2).hi"));
+
+    const cases = [_][2][]const u8{
+        // Keywords used to be dropped silently: line stayed at its positional value
+        .{ "example.Diagnostic(1, 0, line=3)", "TypeError: Diagnostic() got multiple values for argument 'line'" },
+        .{ "example.Diagnostic(1, 2, bogus=9)", "TypeError: Diagnostic() got an unexpected keyword argument 'bogus'" },
+        .{ "example.Diagnostic(line=3)", "TypeError: Diagnostic() missing required argument 'severity'" },
+        .{ "example.Span(scale=2)", "TypeError: Span() missing required argument 'range'" },
+        // __new__ names from pyoz.withSource (a .from class)
+        .{ "example.Interval(1, bogus=2)", "TypeError: Interval() got an unexpected keyword argument 'bogus'" },
+        // __new__ without declared names cannot map keywords: reject, don't ignore
+        .{ "example.FlexPoint(1.0, y=2.0)", "TypeError: FlexPoint() takes no keyword arguments" },
+    };
+    for (cases) |c| {
+        var buf: [256]u8 = undefined;
+        const expr = try std.fmt.bufPrintZ(&buf, "_pyoz_exc(lambda: {s})", .{c[0]});
+        try std.testing.expectEqualStrings(c[1], try python.eval([]const u8, expr));
+    }
+}
+
+test "Zig tuple parameters accept Python tuples" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+    );
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.span_sum((2, 3))"));
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example.Span((1, 5)).hi")); // in __new__
+    try std.testing.expectEqualStrings("TypeError: expected a tuple of 2 items", try python.eval([]const u8, "_pyoz_exc(lambda: example.span_sum([2, 3]))"));
+    try std.testing.expectEqualStrings("ValueError: expected 2 items, got 3", try python.eval([]const u8, "_pyoz_exc(lambda: example.span_sum((1, 2, 3)))"));
+    try std.testing.expectEqualStrings("TypeError: tuple item 1 has the wrong type", try python.eval([]const u8, "_pyoz_exc(lambda: example.span_sum((1, 'x')))"));
+}
+
+test "property getter returning pyoz.Signature" {
+    const python = try initTestPython();
+    try std.testing.expectEqual(@as(i64, 4), try python.eval(i64, "example.Span((1, 5)).width"));
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "    @property\n    def width(self) -> int: ...") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def span_sum(range: tuple[int, int]) -> int") != null);
+}
+
 test "fn greet_named - fromPy exception not overwritten" {
     const python = try initTestPython();
 
