@@ -75,7 +75,35 @@ c._step             # AttributeError: private field not exposed
 
 ## Constructors
 
-By default, the constructor accepts all struct fields as arguments. For custom initialization, define `__new__`:
+By default, the constructor accepts all struct fields as arguments. A field with a default value may be omitted:
+
+```zig
+const Options = struct {
+    width: i64,
+    height: i64 = 10,
+    verbose: bool = false,
+};
+```
+
+```python
+Options(3)                # height=10, verbose=False
+Options(3, verbose=True)
+```
+
+For custom initialization, define `__new__`. The recommended form takes `pyoz.Args`, which gives the constructor keyword arguments and defaults, the same way it does for [functions](functions.md):
+
+```zig
+pub fn __new__(args: pyoz.Args(struct { initial: i64, step: i64 = 1 })) Counter {
+    return .{ .count = args.value.initial, .step = args.value.step };
+}
+```
+
+```python
+Counter(5)
+Counter(initial=5, step=2)
+```
+
+`__new__` can also take plain parameters:
 
 ```zig
 pub fn __new__(initial: i64, step: ?i64) Counter {
@@ -87,8 +115,9 @@ Optional parameters (`?T`) may be omitted and default to `None`.
 
 Constructors take keyword arguments by name. With the default constructor the
 names are the field names: `Point(1.0, y=2.0)` or `Point(x=1.0, y=2.0)`. With
-`__new__`, PyOZ needs the parameter names, which Zig does not expose: declare
-them, or load the class through `pyoz.withSource`:
+`pyoz.Args` they are the fields of the argument struct. With plain parameters,
+PyOZ needs the parameter names, which Zig does not expose: declare them, or
+load the class through `pyoz.withSource`:
 
 ```zig
 pub const __new____params__ = "initial, step";
