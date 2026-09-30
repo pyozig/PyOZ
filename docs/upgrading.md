@@ -29,7 +29,7 @@ Point the dependency at the latest 0.13 release and refresh its hash with `zig f
 which rewrites `build.zig.zon` for you:
 
 ```bash
-zig fetch --save=PyOZ https://github.com/pyozig/PyOZ/archive/refs/tags/v0.13.4.tar.gz
+zig fetch --save=PyOZ https://github.com/pyozig/PyOZ/archive/refs/tags/v0.13.5.tar.gz
 ```
 
 Then declare the minimum Zig version, so older compilers fail with a clear

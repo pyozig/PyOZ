@@ -2126,6 +2126,89 @@ test "constructors accept keyword arguments by name" {
     }
 }
 
+test "constructor - __new__ taking pyoz.Args" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+        \\def _notice(n):
+        \\    return [n.level, n.line, n.column]
+    );
+    // Names and defaults come from the Args struct, no __new____params__
+    try std.testing.expect(try python.eval(bool, "_notice(example.Notice(2, line=7)) == [2, 7, -1]"));
+    try std.testing.expect(try python.eval(bool, "_notice(example.Notice(level=1, column=4)) == [1, 0, 4]"));
+    try std.testing.expect(try python.eval(bool, "_notice(example.Notice(1, 2, 3)) == [1, 2, 3]"));
+
+    const cases = [_][2][]const u8{
+        .{ "example.Notice()", "TypeError: Notice() missing required argument 'level'" },
+        .{ "example.Notice(1, 2, 3, 4)", "TypeError: Notice() takes at most 3 positional arguments (4 given)" },
+        .{ "example.Notice(1, bogus=2)", "TypeError: Notice() got an unexpected keyword argument 'bogus'" },
+        .{ "example.Notice(1, level=2)", "TypeError: Notice() got multiple values for argument 'level'" },
+        .{ "example.Notice('x')", "TypeError: Notice() argument 'level' has the wrong type" },
+    };
+    for (cases) |c| {
+        var buf: [256]u8 = undefined;
+        const expr = try std.fmt.bufPrintZ(&buf, "_pyoz_exc(lambda: {s})", .{c[0]});
+        try std.testing.expectEqualStrings(c[1], try python.eval([]const u8, expr));
+    }
+}
+
+test "constructor - field defaults" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+        \\def _options(o):
+        \\    return [o.width, o.height, o.verbose]
+    );
+    try std.testing.expect(try python.eval(bool, "_options(example.Options(3)) == [3, 10, False]"));
+    try std.testing.expect(try python.eval(bool, "_options(example.Options(3, verbose=True)) == [3, 10, True]"));
+    try std.testing.expect(try python.eval(bool, "_options(example.Options(3, 4, True)) == [3, 4, True]"));
+    // A required field after a defaulted one
+    try std.testing.expect(try python.eval(bool, "(lambda m: [m.left, m.right])(example.Margins(right=3)) == [0, 3]"));
+    try std.testing.expect(try python.eval(bool, "(lambda m: [m.left, m.right])(example.Margins(1, 2)) == [1, 2]"));
+
+    const cases = [_][2][]const u8{
+        .{ "example.Options()", "TypeError: Options() missing required argument 'width'" },
+        .{ "example.Options(height=2)", "TypeError: Options() missing required argument 'width'" },
+        .{ "example.Margins(1)", "TypeError: Margins() missing required argument 'right'" },
+    };
+    for (cases) |c| {
+        var buf: [256]u8 = undefined;
+        const expr = try std.fmt.bufPrintZ(&buf, "_pyoz_exc(lambda: {s})", .{c[0]});
+        try std.testing.expectEqualStrings(c[1], try python.eval([]const u8, expr));
+    }
+}
+
+test "constructor - __init__ stubs describe the real constructor" {
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    const expected = [_][]const u8{
+        // pyoz.Args
+        "def __init__(self, level: int, line: int = ..., column: int | None = ...) -> None: ...",
+        // Field defaults; a required field after one is keyword-only
+        "def __init__(self, width: int, height: int = ..., verbose: bool = ...) -> None: ...",
+        "def __init__(self, left: int = ..., *, right: int) -> None: ...",
+        // __new__ with names (declared, or from the source) and without
+        "def __init__(self, range: tuple[int, int], scale: int | None = None) -> None: ...",
+        "def __init__(self, start: int, length: int | None = None) -> None: ...",
+        "def __init__(self, arg0: float, arg1: float | None = None, arg2: float | None = None, /) -> None: ...",
+    };
+    for (expected) |line| {
+        if (std.mem.indexOf(u8, stubs, line) == null) {
+            std.debug.print("missing stub: {s}\n", .{line});
+            return error.TestExpectedEqual;
+        }
+    }
+}
+
 test "Zig tuple parameters accept Python tuples" {
     const python = try initTestPython();
     try python.exec(

@@ -210,6 +210,34 @@ pub const Interval = struct {
     }
 };
 
+/// A constructor taking pyoz.Args: the names and defaults come from the struct,
+/// so Notice(2, line=7) works with or without withSource.
+pub const Notice = struct {
+    level: i64,
+    line: i64,
+    column: i64,
+
+    pub fn __new__(args: pyoz.Args(struct { level: i64, line: i64 = 0, column: ?i64 = null })) Notice {
+        const a = args.value;
+        return .{ .level = a.level, .line = a.line, .column = a.column orelse -1 };
+    }
+};
+
+/// Field defaults apply to the default constructor: Options(3) or
+/// Options(3, verbose=True).
+pub const Options = struct {
+    width: i64,
+    height: i64 = 10,
+    verbose: bool = false,
+};
+
+/// A required field after one with a default can only be passed by keyword
+/// when the earlier one is omitted: Margins(right=3).
+pub const Margins = struct {
+    left: i64 = 0,
+    right: i64,
+};
+
 /// Keyword function (pyoz.Args) whose error uses the module's error mappings.
 pub fn checked_sqrt(args: pyoz.Args(struct { value: f64 })) !f64 {
     if (args.value.value < 0) return error.OutOfRange;

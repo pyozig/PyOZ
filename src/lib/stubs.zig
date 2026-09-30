@@ -116,6 +116,80 @@ fn isArgsType(comptime T: type) bool {
     return @typeInfo(T) == .@"struct" and @hasDecl(T, "is_pyoz_args");
 }
 
+/// Stub parameters of a class constructor, each prefixed with ", ".
+fn initStubParams(comptime name: []const u8, comptime T: type, comptime is_pyoz_sub: bool, comptime parsed_source: ?source_parser_mod.ParsedSource) []const u8 {
+    comptime {
+        var result: []const u8 = "";
+        if (@hasDecl(T, "__new__")) {
+            const params = @typeInfo(@TypeOf(T.__new__)).@"fn".params;
+            if (params.len == 1 and isArgsType(params[0].type.?)) {
+                const args_params = argsStubParams(params[0].type.?);
+                return if (args_params.len == 0) "" else ", " ++ args_params;
+            }
+            // Names: explicit __new____params__, then parsed source, then argN
+            const names: ?[]const u8 = if (@hasDecl(T, "__new____params__"))
+                asSlice(T.__new____params__)
+            else if (parsed_source) |parsed|
+                source_parser_mod.getMethodParams(parsed, name, "__new__")
+            else
+                null;
+            var state: InitStubState = .{};
+            for (params, 0..) |param, i| {
+                const P = param.type.?;
+                const optional = @typeInfo(P) == .optional;
+                const pname = if (names) |n| getParamName(n, i) else std.fmt.comptimePrint("arg{d}", .{i});
+                if (names == null) {
+                    // Positional-only: just the trailing optionals can be omitted
+                    const trailing = for (params[i..]) |rest| {
+                        if (@typeInfo(rest.type.?) != .optional) break false;
+                    } else true;
+                    result = result ++ ", " ++ pname ++ ": " ++ zigParamTypeToPython(P) ++ (if (trailing) " = None" else "");
+                    continue;
+                }
+                result = result ++ initStubParam(pname, if (optional) @typeInfo(P).optional.child else P, if (optional) " | None = None" else "", !optional, &state);
+            }
+            // Without names the constructor rejects keywords
+            if (names == null and params.len > 0) result = result ++ ", /";
+            return result;
+        }
+        var state: InitStubState = .{};
+        if (is_pyoz_sub) {
+            for (@typeInfo(T.__base__.ParentType).@"struct".fields) |field| {
+                if (isPrivateField(field.name) or ref_mod.isRefType(field.type)) continue;
+                const has_default = field.default_value_ptr != null;
+                result = result ++ initStubParam(field.name, field.type, if (has_default) " = ..." else "", !has_default, &state);
+            }
+        }
+        for (@typeInfo(T).@"struct".fields) |field| {
+            if (isPrivateField(field.name) or ref_mod.isRefType(field.type)) continue;
+            const has_default = field.default_value_ptr != null;
+            result = result ++ initStubParam(field.name, field.type, if (has_default) " = ..." else "", !has_default, &state);
+        }
+        return result;
+    }
+}
+
+/// One constructor parameter. Python does not allow a required parameter after
+/// an optional one, so a required parameter that follows one is keyword-only
+/// (`*`), which is also the only way to pass it while omitting the earlier one.
+fn initStubParam(comptime pname: []const u8, comptime P: type, comptime suffix: []const u8, comptime required: bool, comptime state: *InitStubState) []const u8 {
+    comptime {
+        var out: []const u8 = ", ";
+        if (!required) {
+            state.seen_optional = true;
+        } else if (state.seen_optional and !state.keyword_only) {
+            state.keyword_only = true;
+            out = out ++ "*, ";
+        }
+        return out ++ pname ++ ": " ++ zigParamTypeToPython(P) ++ suffix;
+    }
+}
+
+const InitStubState = struct {
+    seen_optional: bool = false,
+    keyword_only: bool = false,
+};
+
 /// Stub parameters for a `pyoz.Args(S)` parameter: one per field of S, with
 /// `= ...` for fields that have a default and `= None` for optionals.
 fn argsStubParams(comptime ArgsWrapper: type) []const u8 {
@@ -941,22 +1015,9 @@ pub fn generateClassStub(comptime name: []const u8, comptime T: type, comptime b
             result = result ++ "\n";
         }
 
-        // __init__ method — for PyOZ subclasses, include parent fields first
-        result = result ++ "    def __init__(self";
-        if (is_pyoz_sub) {
-            const parent_fields = @typeInfo(T.__base__.ParentType).@"struct".fields;
-            for (parent_fields) |field| {
-                if (isPrivateField(field.name)) continue;
-                if (ref_mod.isRefType(field.type)) continue;
-                result = result ++ ", " ++ field.name ++ ": " ++ zigTypeToPython(field.type);
-            }
-        }
-        for (fields) |field| {
-            if (isPrivateField(field.name)) continue;
-            if (ref_mod.isRefType(field.type)) continue;
-            result = result ++ ", " ++ field.name ++ ": " ++ zigTypeToPython(field.type);
-        }
-        result = result ++ ") -> None: ...\n\n";
+        // __init__: the parameters of __new__ if there is one, otherwise the
+        // public fields (parent fields first for PyOZ subclasses)
+        result = result ++ "    def __init__(self" ++ initStubParams(name, T, is_pyoz_sub, parsed_source) ++ ") -> None: ...\n\n";
 
         // Instance methods, static methods, class methods
         for (struct_info.decls) |decl| {

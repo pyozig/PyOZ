@@ -5,6 +5,18 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.5] - 2026-09-30
+
+### Added
+- **`__new__` can take `pyoz.Args(...)`.** The constructor then accepts keywords and defaults from the argument struct, like keyword functions, with no `__new____params__` and no `pyoz.withSource`: `pub fn __new__(args: pyoz.Args(struct { level: i64, line: i64 = 0 })) Notice`.
+- **Field defaults in the default constructor.** A field with a default value may be omitted: with `struct { width: i64, height: i64 = 10 }`, `Options(3)` and `Options(3, height=4)` both work. A required field after a defaulted one can be passed by keyword.
+
+### Fixed
+- **`__init__` stubs ignored `__new__`.** The `.pyi` always listed the struct's public fields, so a class with a custom constructor got the wrong signature (`def __init__(self)` when all fields are private). Stubs now describe the real constructor: the `pyoz.Args` fields, or the `__new__` parameters with their names when known (`arg0, ..., /` otherwise) and `| None = None` for optional ones. Field defaults appear as `= ...`.
+
+### Changed
+- Constructor error messages follow one format for every constructor kind: `Cls() takes at most N positional arguments (M given)`, `Cls() missing required argument 'x'`, `Cls() argument 'x' has the wrong type`.
+
 ## [0.13.4] - 2026-09-30
 
 ### Fixed

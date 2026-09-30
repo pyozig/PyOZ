@@ -1809,6 +1809,13 @@ test "ABI3 - constructor keyword arguments" {
     // of Interval.__new__ are unknown: keywords are rejected, not ignored.
     try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example_abi3.Interval(2, 3).hi"));
     try std.testing.expectEqualStrings("TypeError: Interval() takes no keyword arguments", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Interval(start=2))"));
+    // __new__ taking pyoz.Args needs no source: the names are the struct's fields
+    try std.testing.expect(try python.eval(bool, "(lambda n: [n.level, n.line, n.column])(example_abi3.Notice(2, line=7)) == [2, 7, -1]"));
+    try std.testing.expectEqualStrings("TypeError: Notice() missing required argument 'level'", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Notice(line=1))"));
+    // Field defaults in the default constructor
+    try std.testing.expect(try python.eval(bool, "(lambda o: [o.width, o.height, o.verbose])(example_abi3.Options(3, verbose=True)) == [3, 10, True]"));
+    try std.testing.expect(try python.eval(bool, "(lambda m: [m.left, m.right])(example_abi3.Margins(right=3)) == [0, 3]"));
+    try std.testing.expectEqualStrings("TypeError: Margins() missing required argument 'right'", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Margins(1))"));
 }
 
 test "ABI3 - str arguments do not leak" {
