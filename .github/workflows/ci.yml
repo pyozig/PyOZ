@@ -38,7 +38,7 @@ jobs:
             matrix:
                 # 3.14t: free-threaded build (PEP 703); the example module
                 # declares .gil_used = false, so the suite runs without the GIL
-                python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+                python-version: ["3.11", "3.12", "3.13", "3.14", "3.14t", "3.15.0-rc.2"]
 
         steps:
             - name: Checkout
@@ -82,7 +82,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+                python-version: ["3.11", "3.12", "3.13", "3.14", "3.15.0-rc.2"]
 
         steps:
             - name: Checkout
@@ -285,7 +285,7 @@ jobs:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, windows-latest, macos-latest]
-                python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+                python-version: ["3.11", "3.12", "3.13", "3.14", "3.15.0-rc.2"]
 
         steps:
             - name: Checkout
