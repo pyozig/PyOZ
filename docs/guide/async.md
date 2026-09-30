@@ -79,7 +79,9 @@ return PyOZ class instances (`!Point`), strings, lists, and so on. Errors map to
 exceptions exactly like synchronous functions, **including the module's
 `.error_mappings`** (`pyoz.mapError` / `pyoz.mapErrorMsg`).
 
-Generated stubs annotate async functions as `-> Awaitable[T]`. Add
+Generated stubs annotate async functions as `-> Awaitable[T]`. A function (or
+completion step) returning `pyoz.Signature(T, "Name")` resolves to the wrapped
+value and is annotated `-> Awaitable[Name]`. Add
 `.withParams("name, ...")` to the `pyoz.func` entry to give parameters real
 names in stubs and `help()`.
 

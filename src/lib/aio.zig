@@ -35,6 +35,7 @@ const PyObject = py.PyObject;
 const conversion = @import("conversion.zig");
 const errors_mod = @import("errors.zig");
 const lazy = @import("python/lazy.zig");
+const root = @import("root.zig");
 
 const gpa = std.heap.smp_allocator;
 
@@ -473,7 +474,8 @@ pub fn AsyncPending(comptime Job: type) type {
         pyfut: *PyObject,
 
         pub const _is_pyoz_async_pending = {};
-        pub const Result = Job.ResultPayload;
+        /// For stubs: keeps a `pyoz.Signature` wrapper, so its stub string is used.
+        pub const Result = Job.StubResult;
 
         pub fn bind(self: @This(), comptime Conv: type, comptime error_mappings: []const errors_mod.ErrorMapping) ?*PyObject {
             self.job.common.convert = &Job.Converting(Conv, error_mappings).convert;
@@ -543,7 +545,10 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
     const ai = self_n + @intFromBool(has_io);
     const has_alloc = P.len > ai and P[ai].type.? == std.mem.Allocator;
     const skip = ai + @intFromBool(has_alloc);
-    const Ret = info.return_type.?;
+    // A `pyoz.Signature(T, "stub")` return is unwrapped: the task stores and
+    // converts T, the stub string only reaches the generated stubs.
+    const RawRet = info.return_type.?;
+    const Ret = root.unwrapSignature(RawRet);
 
     const WorkPayload = if (@typeInfo(Ret) == .error_union) @typeInfo(Ret).error_union.payload else Ret;
 
@@ -555,7 +560,8 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
         "pyoz.asyncThen: the completion function's first parameter must be the task's result, " ++ @typeName(WorkPayload),
     );
     const extra = if (has_then) TP[1..] else TP;
-    const ThenRet = if (has_then) @typeInfo(@TypeOf(then)).@"fn".return_type.? else void;
+    const RawThenRet = if (has_then) @typeInfo(@TypeOf(then)).@"fn".return_type.? else void;
+    const ThenRet = root.unwrapSignature(RawThenRet);
     const n_work = P.len - skip;
 
     const vis: [n_work + extra.len]type = blk: {
@@ -613,7 +619,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
             if (has_alloc) call_args[ai] = job.arena.allocator();
             inline for (0..n_work) |i| call_args[skip + i] = job.payload[i];
 
-            job.result = @call(.auto, f, call_args);
+            job.result = root.unwrapSignatureValue(RawRet, @call(.auto, f, call_args));
             job.result_live = true;
 
             // If Python already cancelled, the supervisor owns cleanup (and
@@ -643,6 +649,10 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
             const convert = common.convert orelse &Converting(Conv, &.{}).convert;
             const value = convert(common, &is_exc) orelse blk: {
                 is_exc = true; // conversion raised: deliver that exception instead
+                if (c.PyErr_Occurred() == null) {
+                    // Never leave the awaitable pending: it would hang forever
+                    py.PyErr_SetString(c.PyExc_SystemError, "pyoz: async result conversion failed without setting an exception");
+                }
                 break :blk fetchException() orelse return;
             };
             defer py.Py_DecRef(value);
@@ -659,6 +669,13 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
         else
             ThenRet;
 
+        /// The type stubs describe: the `pyoz.Signature` wrapper when the
+        /// function that produces the final value returns one.
+        pub const StubResult = blk: {
+            const Final = if (has_then) RawThenRet else RawRet;
+            break :blk if (Final != root.unwrapSignature(Final)) Final else ResultPayload;
+        };
+
         pub fn Converting(comptime C: type, comptime error_mappings: []const errors_mod.ErrorMapping) type {
             return struct {
                 fn convert(common: *Common, is_exc: *bool) ?*PyObject {
@@ -673,7 +690,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
                         var then_args: std.meta.ArgsTuple(@TypeOf(then)) = undefined;
                         then_args[0] = work_value;
                         inline for (n_work..vis.len, 1..) |i, j| then_args[j] = job.payload[i];
-                        const out = @call(.auto, then, then_args);
+                        const out = root.unwrapSignatureValue(RawThenRet, @call(.auto, then, then_args));
                         const unwrapped = if (@typeInfo(ThenRet) == .error_union) out catch |err| {
                             is_exc.* = true;
                             return makeException(err, error_mappings);

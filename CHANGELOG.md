@@ -5,6 +5,12 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.7] - 2026-09-30
+
+### Fixed
+- **Async functions returning `pyoz.Signature(...)` never resolved.** When the completion step of `pyoz.asyncThen`, or the function given to `pyoz.asyncFn` / `pyoz.asyncMethod`, returned a `pyoz.Signature` wrapper, the wrapper was not unwrapped before conversion and the `await` hung forever (only a step that raised and returned `null` worked). The wrapper is now unwrapped, and its stub string is used for the `Awaitable[...]` annotation.
+- **An async result that fails to convert without setting an exception** now raises `SystemError` from the `await` instead of leaving it pending.
+
 ## [0.13.6] - 2026-09-30
 
 ### Added

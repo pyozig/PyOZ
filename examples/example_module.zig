@@ -3194,6 +3194,23 @@ fn async_apply_then(value: i64, callback: *pyoz.PyObject, extra: ?*pyoz.PyObject
     return pyoz.py.c.PyObject_CallFunctionObjArgs(callback, arg, extra, @as(?*pyoz.PyObject, null));
 }
 
+/// A completion step returning pyoz.Signature: the awaitable resolves to the
+/// wrapped value, and the stub says `Awaitable[int]`. With `fail`, it raises
+/// and returns null.
+fn async_signed_then(value: i64, fail: bool) pyoz.Signature(?*pyoz.PyObject, "int") {
+    if (fail) {
+        pyoz.py.PyErr_SetString(pyoz.py.PyExc_ValueError(), "step failed");
+        return .{ .value = null };
+    }
+    return .{ .value = pyoz.py.PyLong_FromLongLong(value) };
+}
+
+/// A task returning pyoz.Signature directly.
+fn async_signed(n: i64) pyoz.Signature(anyerror!i64, "int") {
+    if (n < 0) return .{ .value = error.NegativeValue };
+    return .{ .value = n + 1 };
+}
+
 /// A completion step can also take plain values and return an error.
 fn async_limit_then(value: i64, limit: i64) !i64 {
     if (value > limit) return error.ValueTooLarge;
@@ -3561,6 +3578,8 @@ pub const Example = pyoz.module(.{
         pyoz.func("async_checked", pyoz.asyncFn(async_checked), "await: error mappings apply"),
         pyoz.func("async_sum8", pyoz.asyncFn(async_sum8), "await: 8 parameters"),
         pyoz.func("async_apply", pyoz.asyncThen(async_double, async_apply_then), "await: callback(2*n[, extra]), called on the event loop").withParams("n, callback, extra"),
+        pyoz.func("async_double_signed", pyoz.asyncThen(async_double, async_signed_then), "await: 2*n through a Signature-returning step").withParams("n, fail"),
+        pyoz.func("async_signed", pyoz.asyncFn(async_signed), "await: n+1 from a Signature-returning task").withParams("n"),
         pyoz.func("async_double_limited", pyoz.asyncThen(async_double, async_limit_then), "await: 2*n, ValueError above limit").withParams("n, limit"),
         pyoz.func("test_fmt_long", test_fmt_long, "Test pyoz.fmt with a >4KB message"),
         pyoz.func("test_fmt_return", test_fmt_return, "Test pyoz.fmt as a return type"),
