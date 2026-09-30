@@ -4275,8 +4275,9 @@ test "asyncThen - completion step on the loop thread, held objects, errors, canc
         \\    for _ in range(100):
         \\        if example.async_live_jobs() == 0: break
         \\        await asyncio.sleep(0.01)
-        \\    if called or sys.getrefcount(tag) != base: return "cancel"
+        \\    if called: return "step ran after cancel"
         \\    if example.async_live_jobs() != 0: return "leaked jobs"
+        \\    if sys.getrefcount(tag) != base: return "cancel: %d extra refs, referrers %r" % (sys.getrefcount(tag) - base, [type(r).__name__ for r in gc.get_referrers(tag)])
         \\    return "ok"
         \\_pyoz_then_result = asyncio.run(_pyoz_then())
     );
