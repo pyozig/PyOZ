@@ -3334,6 +3334,37 @@ const Shelf = struct {
     }
 };
 
+/// Constructor keywords: a class built from its fields accepts them by name,
+/// e.g. Diagnostic(1, line=3) or Diagnostic(severity=1, line=3).
+const Diagnostic = struct {
+    severity: i64,
+    line: i64,
+};
+
+/// `__new__` takes keywords when its parameter names are declared, accepts a
+/// Zig tuple as a Python tuple, and has a getter typed with pyoz.Signature.
+const Span = struct {
+    lo: i64,
+    hi: i64,
+
+    pub const __new____params__ = "range, scale";
+
+    pub fn __new__(range: struct { i64, i64 }, scale: ?i64) Span {
+        const k = scale orelse 1;
+        return .{ .lo = range[0] * k, .hi = range[1] * k };
+    }
+
+    /// Property `width`, returning a Python object with an explicit stub type
+    pub fn get_width(self: *const Span) pyoz.Signature(?*pyoz.PyObject, "int") {
+        return .{ .value = pyoz.py.PyLong_FromLongLong(self.hi - self.lo) };
+    }
+};
+
+/// A Zig tuple parameter is a Python tuple of the same length.
+fn span_sum(range: struct { i64, i64 }) i64 {
+    return range[0] + range[1];
+}
+
 fn async_live_jobs() usize {
     return pyoz.asyncLiveJobs();
 }
@@ -3493,6 +3524,7 @@ pub const Example = pyoz.module(.{
         pyoz.func("async_sum", pyoz.asyncFn(async_sum), "await: CPU-bound sum"),
         pyoz.func("async_live_jobs", async_live_jobs, "Async jobs not yet cleaned up"),
         pyoz.func("scale_named", scale_named, "n * by, with keyword arguments via pyoz.func"),
+        pyoz.func("span_sum", span_sum, "Sum of a 2-tuple").withParams("range"),
         pyoz.kwfunc("checked_named", checked_named, "Returns n; error mappings apply"),
         pyoz.func("async_scale_point", pyoz.asyncFn(async_scale_point), "await: scaled Point").withParams("point, factor"),
         pyoz.func("async_checked", pyoz.asyncFn(async_checked), "await: error mappings apply"),
@@ -3509,6 +3541,8 @@ pub const Example = pyoz.module(.{
         pyoz.class("FrozenVec", FrozenVec),
         pyoz.class("AsyncCounter", AsyncCounter),
         pyoz.class("Shelf", Shelf),
+        pyoz.class("Diagnostic", Diagnostic),
+        pyoz.class("Span", Span),
         pyoz.class("Countdown", Countdown),
         pyoz.class("AsyncPages", AsyncPages),
         pyoz.class("Delayed", Delayed),

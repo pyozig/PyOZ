@@ -8,12 +8,14 @@
 
 const std = @import("std");
 const accessors = @import("accessors.zig");
+const errors_mod = @import("../errors.zig");
 const py = @import("../python.zig");
 const ft = @import("threading.zig");
 const conversion = @import("../conversion.zig");
 const ref_mod = @import("../ref.zig");
 
 const unwrapSignature = @import("../root.zig").unwrapSignature;
+const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
 
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
@@ -218,6 +220,28 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
             break :blk gs;
         };
 
+        /// Convert what a getter returned into a new Python reference. Unwraps
+        /// `pyoz.Signature`, maps a returned error to an exception, and never
+        /// returns null without an exception set.
+        fn getterResult(comptime prop_name: []const u8, raw: anytype) ?*py.PyObject {
+            const Conv = conversion.Converter(class_infos);
+            const unwrapped = unwrapSignatureValue(@TypeOf(raw), raw);
+            const py_result = if (@typeInfo(@TypeOf(unwrapped)) == .error_union) blk: {
+                const value = unwrapped catch |err| {
+                    if (py.PyErr_Occurred() == null) {
+                        const msg = @errorName(err);
+                        py.PyErr_SetString(errors_mod.mapWellKnownError(msg), msg.ptr);
+                    }
+                    return null;
+                };
+                break :blk Conv.toPy(@TypeOf(value), value);
+            } else Conv.toPy(@TypeOf(unwrapped), unwrapped);
+            if (py_result == null and py.PyErr_Occurred() == null) {
+                py.PyErr_SetString(py.PyExc_TypeError(), "Cannot convert property '" ++ prop_name ++ "' to Python object");
+            }
+            return py_result;
+        }
+
         fn generateGetter(comptime field_name: []const u8, comptime FieldType: type) *const fn (?*py.PyObject, ?*anyopaque) callconv(.c) ?*py.PyObject {
             if (comptime hasCustomGetter(field_name)) {
                 return struct {
@@ -225,13 +249,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                         _ = closure;
                         const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                         const custom_getter = @field(T, "get_" ++ field_name);
-                        const result = custom_getter(self.getDataConst());
-                        const py_result = conversion.Converter(class_infos).toPy(@TypeOf(result), result);
-                        // Ensure an exception is set if conversion failed
-                        if (py_result == null and py.PyErr_Occurred() == null) {
-                            py.PyErr_SetString(py.PyExc_TypeError(), "Cannot convert field '" ++ field_name ++ "' to Python object");
-                        }
-                        return py_result;
+                        return getterResult(field_name, custom_getter(self.getDataConst()));
                     }
                 }.get;
             }
@@ -319,8 +337,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                     _ = closure;
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const getter = @field(T, getter_name);
-                    const result = getter(self.getDataConst());
-                    return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                    return getterResult(prop_name, getter(self.getDataConst()));
                 }
             }.get;
         }
@@ -398,8 +415,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
                     const self: *Parent.PyWrapper = @ptrCast(@alignCast(self_obj orelse return null));
                     const config = ConfigType{};
                     const getter = config.get;
-                    const result = getter(self.getDataConst());
-                    return conversion.Converter(class_infos).toPy(@TypeOf(result), result);
+                    return getterResult(prop_name, getter(self.getDataConst()));
                 }
             }.get;
         }

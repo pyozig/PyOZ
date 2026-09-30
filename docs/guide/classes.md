@@ -83,7 +83,25 @@ pub fn __new__(initial: i64, step: ?i64) Counter {
 }
 ```
 
-Optional parameters (`?T`) become keyword arguments with `None` as default.
+Optional parameters (`?T`) may be omitted and default to `None`.
+
+Constructors take keyword arguments by name. With the default constructor the
+names are the field names: `Point(1.0, y=2.0)` or `Point(x=1.0, y=2.0)`. With
+`__new__`, PyOZ needs the parameter names, which Zig does not expose: declare
+them, or load the class through `pyoz.withSource`:
+
+```zig
+pub const __new____params__ = "initial, step";
+pub fn __new__(initial: i64, step: ?i64) Counter { ... }
+```
+
+```python
+Counter(initial=5, step=2)
+```
+
+A `__new__` without known names rejects keywords with
+`TypeError: Counter() takes no keyword arguments`. Unknown, duplicated and
+missing arguments raise the same `TypeError`s as Python functions.
 
 `__new__` supports error union and optional return types for validation:
 

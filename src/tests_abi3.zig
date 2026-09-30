@@ -1794,6 +1794,23 @@ test "ABI3 - async protocols via PyType_FromSpec slots" {
     try std.testing.expectEqualStrings("([2, 1, 0], 'end', 9, (True, 5), -1)", try python.eval([]const u8, "_abi3_proto"));
 }
 
+test "ABI3 - constructor keyword arguments" {
+    const python = try initTestPython();
+    try python.exec(
+        \\def _abi3_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+    );
+    try std.testing.expectEqual(@as(f64, 2.0), try python.eval(f64, "example_abi3.Point(x=1.0, y=2.0).y"));
+    try std.testing.expectEqualStrings("TypeError: Point() got multiple values for argument 'y'", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Point(1.0, 2.0, y=3.0))"));
+    // This module loads the .from namespace without source text, so the names
+    // of Interval.__new__ are unknown: keywords are rejected, not ignored.
+    try std.testing.expectEqual(@as(i64, 5), try python.eval(i64, "example_abi3.Interval(2, 3).hi"));
+    try std.testing.expectEqualStrings("TypeError: Interval() takes no keyword arguments", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Interval(start=2))"));
+}
+
 test "ABI3 - str arguments do not leak" {
     const python = try initTestPython();
     // Each call converts a str to []const u8. ABI3 builds used to encode it to

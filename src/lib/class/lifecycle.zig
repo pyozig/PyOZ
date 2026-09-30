@@ -18,6 +18,7 @@ const unwrapSignature = @import("../root.zig").unwrapSignature;
 const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
 
 const class_mod = @import("mod.zig");
+const source_parser = @import("../source_parser.zig");
 const ClassInfo = class_mod.ClassInfo;
 
 /// Check if a field name indicates a private field (starts with underscore)
@@ -203,10 +204,153 @@ pub fn LifecycleBuilder(
         /// __init__ - initialize object
         /// Only public fields (not starting with _) are accepted as arguments.
         /// Private fields are initialized in py_new using defaults or undefined.
+        const InitParam = struct {
+            name: []const u8,
+            name_z: [*:0]const u8,
+            /// `?T` parameter of `__new__`: may be omitted
+            optional: bool,
+        };
+
+        /// Name used in constructor error messages ("Point() got ...").
+        const display_name: []const u8 = blk: {
+            for (class_infos) |info| {
+                if (info.zig_type == T) break :blk std.mem.span(info.name);
+            }
+            const full = @typeName(T);
+            break :blk if (std.mem.lastIndexOfScalar(u8, full, '.')) |dot| full[dot + 1 ..] else full;
+        };
+
+        /// The constructor's Python-visible parameters in positional order,
+        /// which `Cls(...)` also accepts as keywords: the public fields, or the
+        /// parameters of `__new__`. null when `__new__` takes parameters whose
+        /// names are unknown (no `__new____params__` and no source text); such
+        /// constructors reject keywords.
+        const init_params: ?[]const InitParam = blk: {
+            @setEvalBranchQuota(10000);
+            if (@hasDecl(T, "__new__")) {
+                const new_params = @typeInfo(@TypeOf(T.__new__)).@"fn".params;
+                if (new_params.len == 0) break :blk &.{};
+                const names: []const u8 = if (@hasDecl(T, "__new____params__"))
+                    std.mem.span(@as([*:0]const u8, T.__new____params__))
+                else if (class_mod.lookupParsedSource(class_infos, T)) |src|
+                    source_parser.getMethodParams(src, display_name, "__new__") orelse break :blk null
+                else
+                    break :blk null;
+                var params: [new_params.len]InitParam = undefined;
+                var it = std.mem.splitScalar(u8, names, ',');
+                for (new_params, 0..) |p, i| {
+                    const name = std.mem.trim(u8, it.next() orelse break :blk null, " ");
+                    if (name.len == 0) break :blk null;
+                    params[i] = .{ .name = name, .name_z = class_mod.comptimeStrZ(name), .optional = @typeInfo(p.type.?) == .optional };
+                }
+                if (it.next() != null) break :blk null;
+                const final = params;
+                break :blk &final;
+            }
+            var params: [public_field_count]InitParam = undefined;
+            var i: usize = 0;
+            if (is_pyoz_subclass) {
+                for (flat_fields) |ff| {
+                    params[i] = .{ .name = ff.name, .name_z = class_mod.comptimeStrZ(ff.name), .optional = false };
+                    i += 1;
+                }
+            } else {
+                for (fields) |field| {
+                    if (isPrivateField(field.name) or ref_mod.isRefType(field.type)) continue;
+                    params[i] = .{ .name = field.name, .name_z = class_mod.comptimeStrZ(field.name), .optional = false };
+                    i += 1;
+                }
+            }
+            const final = params;
+            break :blk &final;
+        };
+
+        /// Merge keyword arguments into a positional tuple, following Python's
+        /// rules. Returns a new tuple, or null with a TypeError set.
+        fn mergeKeywords(args: ?*py.PyObject, kwds: *py.PyObject) ?*py.PyObject {
+            if (comptime init_params == null) {
+                py.PyErr_SetString(py.PyExc_TypeError(), display_name ++ "() takes no keyword arguments");
+                return null;
+            }
+            const params = comptime init_params.?;
+            const npos: usize = if (args) |a| @intCast(py.PyTuple_Size(a)) else 0;
+            if (npos > params.len) {
+                py.PyErr_SetString(py.PyExc_TypeError(), display_name ++ std.fmt.comptimePrint("() takes at most {d} arguments", .{params.len}));
+                return null;
+            }
+
+            var items: [params.len]?*py.PyObject = @splat(null);
+            var used: py.Py_ssize_t = 0;
+            var count: usize = npos; // arguments to pass: up to the last one given
+            inline for (params, 0..) |p, i| {
+                if (py.PyDict_GetItemString(kwds, p.name_z)) |value| {
+                    if (i < npos) {
+                        py.PyErr_SetString(py.PyExc_TypeError(), display_name ++ "() got multiple values for argument '" ++ p.name ++ "'");
+                        return null;
+                    }
+                    used += 1;
+                    items[i] = value;
+                    count = i + 1;
+                } else if (i < npos) {
+                    items[i] = py.PyTuple_GetItem(args.?, @intCast(i));
+                }
+            }
+
+            if (used < py.PyDict_Size(kwds)) {
+                var pos: py.Py_ssize_t = 0;
+                var key: ?*py.PyObject = null;
+                var value: ?*py.PyObject = null;
+                while (py.PyDict_Next(kwds, &pos, &key, &value) != 0) {
+                    if (!isInitParam(key.?)) {
+                        _ = py.c.PyErr_Format(py.PyExc_TypeError(), display_name ++ "() got an unexpected keyword argument '%U'", key);
+                        return null;
+                    }
+                }
+            }
+
+            // Arguments skipped before the last one given: None for an optional
+            // `__new__` parameter, otherwise it is missing.
+            inline for (params, 0..) |p, i| {
+                if (i < count and items[i] == null) {
+                    if (!p.optional) {
+                        py.PyErr_SetString(py.PyExc_TypeError(), display_name ++ "() missing required argument '" ++ p.name ++ "'");
+                        return null;
+                    }
+                    items[i] = py.Py_None();
+                }
+            }
+
+            const tuple = py.PyTuple_New(@intCast(count)) orelse return null;
+            for (items[0..count], 0..) |item, i| {
+                py.Py_IncRef(item.?);
+                _ = py.PyTuple_SetItem(tuple, @intCast(i), item.?); // steals the reference
+            }
+            return tuple;
+        }
+
+        fn isInitParam(key: *py.PyObject) bool {
+            var len: py.Py_ssize_t = 0;
+            const name = py.PyUnicode_AsUTF8AndSize(key, &len) orelse {
+                py.PyErr_Clear();
+                return false;
+            };
+            inline for (comptime init_params.?) |p| {
+                if (std.mem.eql(u8, p.name, name[0..@intCast(len)])) return true;
+            }
+            return false;
+        }
+
         pub fn py_init(self_obj: ?*py.PyObject, args: ?*py.PyObject, kwds: ?*py.PyObject) callconv(.c) c_int {
-            _ = kwds;
             const self: *PyWrapper = @ptrCast(@alignCast(self_obj orelse return -1));
-            const py_args = args orelse {
+
+            // Keyword arguments become positional ones, by parameter name
+            var merged: ?*py.PyObject = null;
+            defer if (merged) |m| py.Py_DecRef(m);
+            if (kwds) |kw| {
+                if (py.PyDict_Size(kw) > 0) merged = mergeKeywords(args, kw) orelse return -1;
+            }
+
+            const py_args = (merged orelse args) orelse {
                 if (@hasDecl(T, "__new__")) {
                     const NewFn = @TypeOf(T.__new__);
                     const new_params = @typeInfo(NewFn).@"fn".params;
