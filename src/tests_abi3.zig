@@ -1835,6 +1835,27 @@ test "ABI3 - constructor keyword arguments" {
     try std.testing.expectEqualStrings("TypeError: Margins() missing required argument 'right'", try python.eval([]const u8, "_abi3_exc(lambda: example_abi3.Margins(1))"));
 }
 
+test "ABI3 - GC classes: tracked, collected in cycles, freed with tp_free" {
+    // Used to crash: the deallocator freed GC objects with PyObject_Del,
+    // which does not account for the GC header in front of the object
+    const python = try initTestPython();
+    try python.exec(
+        \\import gc
+        \\_abi3_gc_base = example_abi3.gc_node_deleted_count()
+        \\_n = example_abi3.GcNode()
+        \\_abi3_gc_tracked = gc.is_tracked(_n)
+        \\del _n
+        \\for _ in range(200):
+        \\    _a = example_abi3.GcNode(); _a.attach(_a)
+        \\    _b = example_abi3.GcNode(); _c = example_abi3.GcNode(); _b.attach([_c]); _c.attach(_b)
+        \\    del _a, _b, _c
+        \\gc.collect(); gc.collect()
+        \\_abi3_gc_deleted = example_abi3.gc_node_deleted_count() - _abi3_gc_base
+    );
+    try std.testing.expect(try python.eval(bool, "_abi3_gc_tracked"));
+    try std.testing.expectEqual(@as(i64, 601), try python.eval(i64, "_abi3_gc_deleted"));
+}
+
 test "ABI3 - str arguments do not leak" {
     const python = try initTestPython();
     // Each call converts a str to []const u8. ABI3 builds used to encode it to

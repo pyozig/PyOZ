@@ -2602,6 +2602,23 @@ test "Container - GC traversal support" {
     try std.testing.expect(try python.eval(bool, "gc.is_tracked(c)"));
 }
 
+test "Container - reference cycles are collected" {
+    const python = try initTestPython();
+    try python.exec(
+        \\import gc, weakref
+        \\class _PyozMarker: pass
+        \\_pyoz_alive = []
+        \\for _ in range(200):
+        \\    _a = example.Container('a'); _a.store(_a)
+        \\    _b = example.Container('b'); _m = _PyozMarker(); _m.box = _b; _b.store(_m)
+        \\    _pyoz_alive.append(weakref.ref(_m))
+        \\    del _a, _b, _m
+        \\gc.collect(); gc.collect()
+        \\_pyoz_cycles_left = sum(r() is not None for r in _pyoz_alive)
+    );
+    try std.testing.expectEqual(@as(i64, 0), try python.eval(i64, "_pyoz_cycles_left"));
+}
+
 test "Container - __clear__ method" {
     const python = try initTestPython();
 

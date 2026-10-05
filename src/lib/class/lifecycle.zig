@@ -153,7 +153,13 @@ pub fn LifecycleBuilder(
         // re-arming a cached object's header needs its owning thread id
         // (ob_tid) and split refcounts, which CPython exposes no public API for.
         // The per-thread mimalloc heaps of free-threaded CPython fill this role.
-        const has_freelist = freelist_size > 0 and !py.types.gil_disabled;
+        // Also disabled for GC types (__traverse__): a cached object is
+        // untracked, and reusing it would have to track it again.
+        const has_freelist = freelist_size > 0 and !py.types.gil_disabled and !has_gc;
+
+        /// Py_TPFLAGS_HAVE_GC is set (class/mod.zig): objects carry a GC
+        /// header, are tracked from allocation and need GC-aware teardown.
+        const has_gc = @hasDecl(T, "__traverse__");
 
         var freelist: [freelist_size]?*py.PyObject = [_]?*py.PyObject{null} ** freelist_size;
         var freelist_count: usize = 0;
@@ -430,6 +436,9 @@ pub fn LifecycleBuilder(
             const obj = self_obj orelse return;
             const self: *PyWrapper = @ptrCast(@alignCast(obj));
 
+            // Stop the collector from visiting the object while it is torn down
+            if (comptime has_gc) py.c.PyObject_GC_UnTrack(obj);
+
             // Call user's __del__ only if the object was successfully initialized.
             // If __new__ failed (returned error/null), the object was never fully
             // constructed, so __del__ must not run — matching Python semantics.
@@ -472,8 +481,18 @@ pub fn LifecycleBuilder(
             // In ABI3 mode, PyTypeObject is opaque so we can't access tp_flags or tp_free
             // All types created via PyType_FromSpec are heap types
             if (comptime abi.abi3_enabled) {
-                // Free the object
-                py.PyObject_Del(self_obj);
+                // Free with the type's tp_free: PyType_FromSpec sets it to
+                // PyObject_GC_Del for GC types, whose memory starts before the
+                // object (the GC header), so PyObject_Del would corrupt the heap.
+                const free_slot = if (obj_type) |t| py.c.PyType_GetSlot(t, py.c.Py_tp_free) else null;
+                if (free_slot) |f| {
+                    const free_fn: *const fn (?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(f));
+                    free_fn(self_obj);
+                } else if (comptime has_gc) {
+                    py.c.PyObject_GC_Del(self_obj);
+                } else {
+                    py.PyObject_Del(self_obj);
+                }
                 // Decref the type (heap types need this)
                 if (obj_type) |t| {
                     py.Py_DecRef(@ptrCast(@alignCast(t)));

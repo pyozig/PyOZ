@@ -149,6 +149,11 @@ pub const features = struct {
     /// Iterator consumer (PyObject_GetIter, PyIter_Next)
     pub const iterator_consumer = true;
 
+    /// GC protocol (__traverse__/__clear__): PyType_FromSpec accepts
+    /// Py_TPFLAGS_HAVE_GC with Py_tp_traverse/Py_tp_clear, and PyObject_GC_*
+    /// and PyType_GetSlot are in the Limited API
+    pub const gc_protocol = true;
+
     // --- Version-dependent features ---
 
     /// PyModule_AddType (Python 3.9+)
@@ -167,9 +172,6 @@ pub const features = struct {
 
     /// Embedding APIs (PyRun_String, PyRun_SimpleString, etc.)
     pub const embedding = !enabled;
-
-    /// GC protocol (Py_TPFLAGS_HAVE_GC, tp_traverse, tp_clear)
-    pub const gc_protocol = !enabled;
 
     /// structmember.h (T_OBJECT_EX, READONLY for __dict__/__weakref__)
     pub const structmember = !enabled;
@@ -215,15 +217,6 @@ pub const errors = struct {
         \\
         \\Workaround: Use PyObject_Call() with imported modules and functions,
         \\or set abi3 = false.
-    ;
-
-    pub const gc_protocol =
-        \\The garbage collection protocol (Py_TPFLAGS_HAVE_GC, tp_traverse, tp_clear)
-        \\is not part of the Stable ABI. Custom classes cannot participate in
-        \\Python's cyclic garbage collector.
-        \\
-        \\Note: Objects are still deallocated via tp_dealloc, but cycles may leak.
-        \\If you need GC support, set abi3 = false.
     ;
 
     pub const dict_weakref =
@@ -311,8 +304,8 @@ test "feature flags consistency" {
         try std.testing.expect(features.datetime_capi);
         try std.testing.expect(features.buffer_producer);
         try std.testing.expect(features.embedding);
-        try std.testing.expect(features.gc_protocol);
     }
+    try std.testing.expect(features.gc_protocol);
 
     // Inverse relationship
     try std.testing.expectEqual(!enabled, features.datetime_capi);
