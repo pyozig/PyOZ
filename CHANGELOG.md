@@ -5,6 +5,18 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.9] - 2026-10-05
+
+### Fixed
+- **ABI3 builds crashed when freeing objects of a class with `__traverse__`.** Such classes have `Py_TPFLAGS_HAVE_GC`, so their objects are allocated with a GC header in front, but the ABI3 deallocator always freed them with `PyObject_Del`, corrupting the heap (a segfault as soon as one was collected). It now frees with the type's `tp_free` (`PyType_GetSlot`, which `PyType_FromSpec` sets to `PyObject_GC_Del` for GC types).
+- **GC objects were not untracked before being torn down**, in every build mode, so the collector could visit a half-destroyed object. The deallocator now calls `PyObject_GC_UnTrack` first. Classes with `__traverse__` no longer use the `__freelist__` cache, since reusing a cached object would require tracking it again.
+- **A failed `pyoz build` left a corrupt wheel in `dist/`.** The wheel was written in place after deleting the previous one, so a failure while packaging replaced a good wheel with an invalid zip that `pyoz publish` would upload. It is now written to a `.tmp` file and renamed on success; on failure the previous wheel is untouched.
+- **The build log named the wrong stub file** (the project name instead of the module name, e.g. `zrun-py.pyi` for a wheel containing `zrun.pyi`).
+
+### Changed
+- **`pyoz build` checks the project metadata before compiling.** A missing readme or license file now fails immediately instead of after the compile, which can take minutes.
+- The ABI3 documentation said the GC protocol was not part of the Stable ABI. It is, and it works in ABI3 mode (regression test with reference cycles).
+
 ## [0.13.8] - 2026-10-05
 
 ### Fixed

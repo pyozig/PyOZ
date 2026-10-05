@@ -105,7 +105,14 @@ fn buildOneWheel(ctx: Ctx, opts: WheelOptions, target: Target) ![]const u8 {
         return error.NativeCrossBuild;
     }
 
-    // Build the module first
+    // Check the metadata (readme, license files, ...) before compiling, which
+    // can take minutes: the same step runs again when the wheel is written.
+    {
+        var md = try metadata.build(allocator, io, Io.Dir.cwd());
+        md.deinit(allocator);
+    }
+
+    // Build the module
     var build_result = try builder.buildModule(ctx, .{
         .release = opts.release,
         .target = if (native) null else target,
@@ -177,7 +184,7 @@ fn buildOneWheel(ctx: Ctx, opts: WheelOptions, target: Target) ![]const u8 {
         };
 
         if (stub_content) |_| {
-            std.debug.print("  Including type stubs: {s}.pyi\n", .{config.name});
+            std.debug.print("  Including type stubs: {s}.pyi\n", .{config.getModuleName()});
         } else {
             std.debug.print("  Note: No stubs found in module. Ensure your module uses pyoz.module().\n", .{});
         }
@@ -215,12 +222,37 @@ fn createWheelZip(
     module_name: []const u8,
     stub_content: ?[]const u8,
 ) !void {
+    // Write next to the final path and rename on success: a failure part way
+    // must not leave a broken wheel in dist/ (where `pyoz publish` would
+    // upload it) nor destroy the previous good one.
+    const cwd = Io.Dir.cwd();
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{wheel_path});
+    defer allocator.free(tmp_path);
+    writeWheelZip(allocator, io, mtime, dist_name, tmp_path, config, wheel_tag, module_path, module_name, stub_content) catch |err| {
+        cwd.deleteFile(io, tmp_path) catch {};
+        return err;
+    };
+    cwd.rename(tmp_path, cwd, wheel_path, io) catch |err| {
+        cwd.deleteFile(io, tmp_path) catch {};
+        return err;
+    };
+}
+
+fn writeWheelZip(
+    allocator: std.mem.Allocator,
+    io: Io,
+    mtime: ?i64,
+    dist_name: []const u8,
+    wheel_path: []const u8,
+    config: *const project.toml.PyProjectConfig,
+    wheel_tag: []const u8,
+    module_path: []const u8,
+    module_name: []const u8,
+    stub_content: ?[]const u8,
+) !void {
     const cwd = Io.Dir.cwd();
 
-    // Delete existing wheel file if present
-    cwd.deleteFile(io, wheel_path) catch {};
-
-    // Create ZIP writer for the wheel
+    // Create ZIP writer for the wheel (closed before the caller renames it)
     var z = try zip.ZipWriter.init(allocator, io, wheel_path, .{ .mtime = mtime });
     defer z.deinit();
 

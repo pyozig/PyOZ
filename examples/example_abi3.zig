@@ -28,7 +28,8 @@
 //! - Buffer producer (__buffer__ protocol)
 //! - Python embedding (exec/eval)
 //! - __dict__ and __weakref__ support on classes
-//! - GC protocol (__traverse__, __clear__)
+//!
+//! The GC protocol (__traverse__, __clear__) is available: see GcNode.
 
 const std = @import("std");
 const pyoz = @import("PyOZ");
@@ -742,6 +743,49 @@ fn make_del_counter(value: i64) DelCounter {
 
 fn del_counter_deleted_count() i64 {
     return del_counter_deleted.load(.monotonic);
+}
+
+// GcNode - the GC protocol works on the Limited API: PyType_FromSpec accepts
+// Py_TPFLAGS_HAVE_GC with tp_traverse/tp_clear. Objects carry a GC header, so
+// they must be untracked and freed with the type's tp_free (PyObject_GC_Del).
+var gc_node_deleted = std.atomic.Value(i64).init(0);
+
+const GcNode = struct {
+    /// Any Python object; storing a reference to the node itself makes a cycle
+    link: ?*pyoz.PyObject,
+
+    pub fn __new__() GcNode {
+        return .{ .link = null };
+    }
+
+    pub fn attach(self: *GcNode, obj: *pyoz.PyObject) void {
+        pyoz.py.Py_IncRef(obj);
+        if (self.link) |old| pyoz.py.Py_DecRef(old);
+        self.link = obj;
+    }
+
+    pub fn __traverse__(self: *GcNode, visitor: pyoz.GCVisitor) c_int {
+        return visitor.call(self.link);
+    }
+
+    pub fn __clear__(self: *GcNode) void {
+        if (self.link) |obj| {
+            self.link = null;
+            pyoz.py.Py_DecRef(obj);
+        }
+    }
+
+    pub fn __del__(self: *GcNode) void {
+        if (self.link) |obj| {
+            self.link = null;
+            pyoz.py.Py_DecRef(obj);
+        }
+        _ = gc_node_deleted.fetchAdd(1, .monotonic);
+    }
+};
+
+fn gc_node_deleted_count() i64 {
+    return gc_node_deleted.load(.monotonic);
 }
 
 // ============================================================================
@@ -1823,6 +1867,7 @@ pub const Abi3Example = pyoz.module(.{
     .funcs = &.{
         pyoz.func("make_del_counter", make_del_counter, "Return a DelCounter by value"),
         pyoz.func("del_counter_deleted_count", del_counter_deleted_count, "How many DelCounter instances were deleted"),
+        pyoz.func("gc_node_deleted_count", gc_node_deleted_count, "How many GcNode instances were deleted"),
         // Basic arithmetic
         pyoz.func("async_add", pyoz.asyncFn(async_add), "await: a+b (ABI3)"),
         pyoz.func("async_add_apply", pyoz.asyncThen(async_add, async_add_then), "await: callback(a+b[, extra])").withParams("a, b, callback, extra"),
@@ -1946,6 +1991,7 @@ pub const Abi3Example = pyoz.module(.{
         pyoz.class("IntList", IntList),
         pyoz.class("FailingResource", FailingResource),
         pyoz.class("DelCounter", DelCounter),
+        pyoz.class("GcNode", GcNode),
         pyoz.class("BitSet", BitSet),
         pyoz.class("PowerNumber", PowerNumber),
         // New classes for ABI3 testing

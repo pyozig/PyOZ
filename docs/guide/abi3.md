@@ -66,7 +66,7 @@ The following features are **not available** in ABI3 mode:
 
 **Submodules** - Creating module hierarchies requires `tp_dict` access on module objects, which is opaque in ABI3.
 
-**GC protocol** - The `__traverse__` and `__clear__` methods for garbage collection support may work but aren't guaranteed stable across versions.
+The **GC protocol** (`__traverse__`, `__clear__`) is available in ABI3 mode: the type flags, slots and functions it needs are part of the Limited API.
 
 ## Wheel Distribution
 
