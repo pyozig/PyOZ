@@ -31,7 +31,7 @@ pub fn wrapFunctionWithClasses(comptime zig_func: anytype, comptime class_infos:
             _ = self;
 
             var zig_args = parseArgs(params, args) catch |err| {
-                setError(err);
+                setArgumentError(err);
                 return null;
             };
             // Ensure BufferView arguments are released after the function call
@@ -51,14 +51,20 @@ pub fn wrapFunctionWithClasses(comptime zig_func: anytype, comptime class_infos:
 
             const py_args = args orelse return error.MissingArguments;
             const arg_count = py.PyTuple_Size(py_args);
+            const min_args = comptime minPositionalArgs(parameters);
 
-            if (arg_count != parameters.len) {
+            if (arg_count < min_args or arg_count > parameters.len) {
                 return error.WrongArgumentCount;
             }
 
             inline for (parameters, 0..) |param, i| {
-                const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
-                result[i] = try Conv.fromPy(param.type.?, item);
+                result[i] = arg: {
+                    if (comptime i >= min_args) {
+                        if (i >= arg_count) break :arg null;
+                    }
+                    const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
+                    break :arg try Conv.fromPy(param.type.?, item);
+                };
             }
 
             return result;
@@ -112,6 +118,23 @@ fn mapErrorToExc(err: anyerror) *PyObject {
 /// Generate a Python-callable wrapper for a Zig function (no class awareness)
 pub fn wrapFunction(comptime zig_func: anytype) py.PyCFunction {
     return wrapFunctionWithClasses(zig_func, &[_]ClassInfo{});
+}
+
+/// A positional argument could not be parsed (wrong count, wrong type): a
+/// TypeError, as for methods and Python functions, unless the conversion
+/// already raised something more specific.
+fn setArgumentError(err: anyerror) void {
+    if (py.PyErr_Occurred() != null) return;
+    py.PyErr_SetString(py.PyExc_TypeError(), @errorName(err).ptr);
+}
+
+/// Fewest positional arguments a call needs: the parameters up to the last one
+/// that is not optional. Trailing `?T` parameters may be omitted and are then
+/// null, as the generated signatures (`x=None`) say.
+pub fn minPositionalArgs(comptime params: []const std.builtin.Type.Fn.Param) usize {
+    var min: usize = params.len;
+    while (min > 0 and @typeInfo(params[min - 1].type.?) == .optional) min -= 1;
+    return min;
 }
 
 /// Helper type for argument tuple
@@ -322,7 +345,7 @@ pub fn wrapFunctionWithErrorMapping(comptime zig_func: anytype, comptime class_i
             _ = self;
 
             var zig_args = parseArgs(params, args) catch |err| {
-                setMappedError(err);
+                setArgumentError(err);
                 return null;
             };
             // Ensure BufferView arguments are released after the function call
@@ -342,14 +365,20 @@ pub fn wrapFunctionWithErrorMapping(comptime zig_func: anytype, comptime class_i
 
             const py_args = args orelse return error.MissingArguments;
             const arg_count = py.PyTuple_Size(py_args);
+            const min_args = comptime minPositionalArgs(parameters);
 
-            if (arg_count != parameters.len) {
+            if (arg_count < min_args or arg_count > parameters.len) {
                 return error.WrongArgumentCount;
             }
 
             inline for (parameters, 0..) |param, i| {
-                const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
-                parse_result[i] = try Conv.fromPy(param.type.?, item);
+                parse_result[i] = arg: {
+                    if (comptime i >= min_args) {
+                        if (i >= arg_count) break :arg null;
+                    }
+                    const item = py.PyTuple_GetItem(py_args, @intCast(i)) orelse return error.InvalidArgument;
+                    break :arg try Conv.fromPy(param.type.?, item);
+                };
             }
 
             return parse_result;

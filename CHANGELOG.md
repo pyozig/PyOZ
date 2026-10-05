@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Large classes failed to compile with `evaluation exceeded N backwards branches`.** PyOZ builds every method's signature and docstring at compile time, in one evaluation for the whole class, and that evaluation never raised Zig's branch quota. The cost grows with the number of methods and the length of their signatures and docs, so a class with about 40 documented methods could exceed it, and user code could not raise the limit. The method table, method detection, property counting and constructor now raise the quota like the module-level code already did. Regression example in `examples/wide_class.zig`; a class with 400 methods, 100 properties and 120 static and keyword methods also builds.
+- **Trailing optional parameters could not be omitted in positional calls.** A function or method with `?T` parameters and no known parameter names advertised `arg2=None` in its signature, but calling it without that argument raised `WrongArgumentCount`. Trailing `?T` parameters may now be omitted (they are `null`) in module functions, instance, static and class methods, and `__call__`. A `?T` followed by a required parameter is still required, and the signature no longer claims a default for it. The `.pyi` stubs now show `= None` for the omittable ones.
+- **Argument errors in module functions raised `RuntimeError`.** A wrong argument count or type in a module function went through the error-name mapping and fell back to `RuntimeError`; it is now a `TypeError`, as for methods.
 
 ## [0.13.7] - 2026-09-30
 

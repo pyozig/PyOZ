@@ -3369,6 +3369,36 @@ test "WideClass - a class with many documented methods compiles" {
     try std.testing.expectEqual(@as(i64, 40), try python.eval(i64, "len([n for n in dir(example.WideClass) if n.startswith('read_')])"));
 }
 
+test "positional calls may omit trailing optional parameters" {
+    // The signatures said `x=None`, but the call required every argument
+    const python = try initTestPython();
+    try python.exec(
+        \\def _pyoz_exc(f):
+        \\    try:
+        \\        f(); return "no error"
+        \\    except Exception as e:
+        \\        return f"{type(e).__name__}: {e}"
+    );
+    // Method without parameter names
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "example.WideClass(2).read_39('x', 1)"));
+    try std.testing.expectEqualStrings("TypeError: WrongArgumentCount", try python.eval([]const u8, "_pyoz_exc(lambda: example.WideClass(2).read_39('x'))"));
+    try std.testing.expectEqualStrings("TypeError: WrongArgumentCount", try python.eval([]const u8, "_pyoz_exc(lambda: example.WideClass(2).read_39('x', 1, 2, 3))"));
+    // Module function without parameter names
+    try std.testing.expectEqual(@as(i64, 100), try python.eval(i64, "example.clamp_to(500)"));
+    try std.testing.expectEqual(@as(i64, 7), try python.eval(i64, "example.clamp_to(500, 7)"));
+    try std.testing.expectEqual(@as(i64, 100), try python.eval(i64, "example.clamp_to(500, None)"));
+    try std.testing.expectEqualStrings("TypeError: WrongArgumentCount", try python.eval([]const u8, "_pyoz_exc(lambda: example.clamp_to())"));
+    // help() and the stubs say the same
+    try std.testing.expectEqualStrings("($self, arg0, arg1, arg2=None, /)", try python.eval([]const u8, "example.WideClass.read_0.__text_signature__"));
+    try std.testing.expectEqualStrings("($module, arg0, arg1=None, /)", try python.eval([]const u8, "example.clamp_to.__text_signature__"));
+
+    const stubs_opt = symreader.extractStubs(std.testing.io, std.testing.allocator, "zig-out/lib/example.so") catch null;
+    const stubs = stubs_opt orelse return error.SkipZigTest;
+    defer std.testing.allocator.free(stubs);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def read_0(self, arg0: str, arg1: int, arg2: int | None = None) -> int") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stubs, "def clamp_to(arg0: int, arg1: int | None = None) -> int") != null);
+}
+
 // ============================================================================
 // PRIVATE FIELDS (underscore prefix convention)
 // ============================================================================

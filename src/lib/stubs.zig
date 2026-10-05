@@ -18,6 +18,8 @@ const from_mod = @import("from.zig");
 const source_parser_mod = @import("source_parser.zig");
 const awaitable = @import("awaitable.zig");
 const accessors = @import("class/accessors.zig");
+/// Positional calls may omit trailing `?T` parameters (same rule as the wrappers)
+const minPositionalArgs = @import("wrappers.zig").minPositionalArgs;
 
 /// How keyword arguments are handled for a function.
 pub const KwargsMode = enum {
@@ -634,17 +636,18 @@ pub fn buildMlDoc(
                     .module_func, .static_method => 0,
                 };
 
+                const min_args = minPositionalArgs(params[skip..]);
                 var arg_idx: usize = 0;
                 for (params[skip..]) |param| {
-                    if (param.type) |ptype| {
+                    if (param.type) |_| {
                         if (has_any) result = result ++ ", ";
                         if (param_names) |pn| {
                             result = result ++ getParamName(pn, arg_idx);
                         } else {
                             result = result ++ std.fmt.comptimePrint("arg{d}", .{arg_idx});
                         }
-                        // Mark optional parameters
-                        if (@typeInfo(ptype) == .optional) {
+                        // Trailing optional parameters may be omitted
+                        if (arg_idx >= min_args) {
                             result = result ++ "=None";
                         }
                         has_any = true;
@@ -924,7 +927,8 @@ pub fn generateFunctionStub(
                 }
             },
             .positional => {
-                // Regular positional arguments
+                // Regular positional arguments; trailing optionals may be omitted
+                const min_args = minPositionalArgs(params);
                 var arg_idx: usize = 0;
                 for (params) |param| {
                     if (param.type) |ptype| {
@@ -937,6 +941,7 @@ pub fn generateFunctionStub(
                         else
                             std.fmt.comptimePrint("arg{d}", .{arg_idx});
                         result = result ++ pname ++ ": " ++ zigParamTypeToPython(ptype);
+                        if (arg_idx >= min_args) result = result ++ " = None";
                         arg_idx += 1;
                     }
                 }
@@ -1354,12 +1359,16 @@ fn generateMethodStub(comptime name: []const u8, comptime Fn: type, comptime Cla
                 } else {
                     const p0name = if (has_param_names) getParamName(param_names_str, 0) else "arg0";
                     result = result ++ p0name ++ ": " ++ zigTypeToPython(first_param);
+                    if (minPositionalArgs(params) == 0) result = result ++ " = None";
                 }
             }
 
             // Rest of parameters
             const start_idx: usize = if (is_self or is_classmethod) 1 else 1;
             var param_idx: usize = if (is_self or is_classmethod) 0 else 1;
+            // Python-visible parameters (static methods have no self/cls)
+            const visible = if (is_self or is_classmethod) params[1..] else params;
+            const min_args = minPositionalArgs(visible);
 
             for (params[start_idx..]) |param| {
                 if (param.type) |ptype| {
@@ -1372,6 +1381,7 @@ fn generateMethodStub(comptime name: []const u8, comptime Fn: type, comptime Cla
                     else
                         std.fmt.comptimePrint("arg{d}", .{param_idx});
                     result = result ++ ", " ++ pname ++ ": " ++ zigParamTypeToPython(ptype);
+                    if (param_idx >= min_args) result = result ++ " = None";
                     param_idx += 1;
                 }
             }

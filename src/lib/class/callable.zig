@@ -12,6 +12,7 @@ const unwrapSignatureValue = @import("../root.zig").unwrapSignatureValue;
 const class_mod = @import("mod.zig");
 const ClassInfo = class_mod.ClassInfo;
 const errors_mod = @import("../errors.zig");
+const wrappers_mod = @import("../wrappers.zig");
 
 /// Build callable protocol for a given type
 pub fn CallableProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Parent: type, comptime class_infos: []const ClassInfo) type {
@@ -48,16 +49,21 @@ pub fn CallableProtocol(comptime _: [*:0]const u8, comptime T: type, comptime Pa
 
             const args_tuple = py_args orelse return error.MissingArguments;
             const arg_count = py.PyTuple_Size(args_tuple);
+            const min_args = comptime wrappers_mod.minPositionalArgs(call_params[1..]);
 
-            if (arg_count != extra_param_count) {
+            if (arg_count < min_args or arg_count > extra_param_count) {
                 return error.WrongArgumentCount;
             }
 
-            comptime var i: usize = 0;
             inline for (1..call_params.len) |param_idx| {
-                const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
-                result[i] = try Conv.fromPy(call_params[param_idx].type.?, item);
-                i += 1;
+                const i = param_idx - 1;
+                result[i] = arg: {
+                    if (comptime i >= min_args) {
+                        if (i >= arg_count) break :arg null;
+                    }
+                    const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
+                    break :arg try Conv.fromPy(call_params[param_idx].type.?, item);
+                };
             }
 
             return result;
