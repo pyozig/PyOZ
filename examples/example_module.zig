@@ -3412,6 +3412,11 @@ fn span_sum(range: struct { i64, i64 }) i64 {
     return range[0] + range[1];
 }
 
+/// Positional-only (no names): the trailing optional may still be omitted.
+fn clamp_to(value: i64, limit: ?i64) i64 {
+    return @min(value, limit orelse 100);
+}
+
 fn async_live_jobs() usize {
     return pyoz.asyncLiveJobs();
 }
@@ -3573,6 +3578,7 @@ pub const Example = pyoz.module(.{
         pyoz.func("async_live_jobs", async_live_jobs, "Async jobs not yet cleaned up"),
         pyoz.func("scale_named", scale_named, "n * by, with keyword arguments via pyoz.func"),
         pyoz.func("span_sum", span_sum, "Sum of a 2-tuple").withParams("range"),
+        pyoz.func("clamp_to", clamp_to, "min(value, limit), limit defaulting to 100"),
         pyoz.kwfunc("checked_named", checked_named, "Returns n; error mappings apply"),
         pyoz.func("async_scale_point", pyoz.asyncFn(async_scale_point), "await: scaled Point").withParams("point, factor"),
         pyoz.func("async_checked", pyoz.asyncFn(async_checked), "await: error mappings apply"),
@@ -3632,6 +3638,7 @@ pub const Example = pyoz.module(.{
         pyoz.class("Resource", Resource),
         pyoz.class("FailingResource", FailingResource),
         pyoz.class("DelCounter", DelCounter),
+        pyoz.class("WideClass", @import("wide_class.zig").WideClass),
         pyoz.class("FlexPoint", FlexPoint),
         pyoz.class("Line", Line),
         pyoz.class("Owner", Owner),

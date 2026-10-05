@@ -39,11 +39,11 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
         /// Check if a declaration is handled by a protocol slot or is a
         /// non-function dunder (constant/type). The slot_dunders list is
         /// provided by mod.zig and contains only the dunders T actually
-        /// declares — typically 5–15 items, so this never hits branch-quota
-        /// limits. Other dunders like __enter__, __exit__, __missing__ pass
-        /// through as regular methods.
+        /// declares. The branch quota is shared by the whole evaluation that
+        /// calls this (once per declaration), hence the maximum. Other dunders
+        /// like __enter__, __exit__, __missing__ pass through as regular methods.
         fn isSlotDunder(comptime decl_name: []const u8) bool {
-            @setEvalBranchQuota(5000);
+            @setEvalBranchQuota(std.math.maxInt(u32));
             // Non-function declarations (__doc__, __base__, __features__, etc.)
             if (@hasDecl(T, decl_name) and @typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn")
                 return true;
@@ -232,6 +232,8 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
         const total_count = totalMethodCount();
 
         pub var methods: [total_count + 1]py.PyMethodDef = blk: {
+            // Scales with the number of methods (signatures and docs are built here)
+            @setEvalBranchQuota(std.math.maxInt(u32));
             var m: [total_count + 1]py.PyMethodDef = undefined;
             var idx: usize = 0;
 
@@ -506,18 +508,23 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
 
                     const args_tuple = py_args orelse return error.MissingArguments;
                     const arg_count = py.PyTuple_Size(args_tuple);
+                    const min_args = comptime wrappers_mod.minPositionalArgs(params[1..]);
 
-                    if (arg_count != extra_param_count) {
+                    if (arg_count < min_args or arg_count > extra_param_count) {
                         return error.WrongArgumentCount;
                     }
 
-                    comptime var i: usize = 0;
                     inline for (1..params.len) |param_idx| {
-                        const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
-                        // Use class-aware converter so methods can take cross-class parameters
-                        const Conv = conversion.Converter(class_infos);
-                        result[i] = try Conv.fromPy(params[param_idx].type.?, item);
-                        i += 1;
+                        const i = param_idx - 1;
+                        result[i] = arg: {
+                            if (comptime i >= min_args) {
+                                if (i >= arg_count) break :arg null;
+                            }
+                            const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
+                            // Use class-aware converter so methods can take cross-class parameters
+                            const Conv = conversion.Converter(class_infos);
+                            break :arg try Conv.fromPy(params[param_idx].type.?, item);
+                        };
                     }
 
                     return result;
@@ -598,16 +605,20 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
 
                     const args_tuple = py_args orelse return error.MissingArguments;
                     const arg_count = py.PyTuple_Size(args_tuple);
+                    const min_args = comptime wrappers_mod.minPositionalArgs(params);
 
-                    if (arg_count != params.len) {
+                    if (arg_count < min_args or arg_count > params.len) {
                         return error.WrongArgumentCount;
                     }
 
-                    comptime var i: usize = 0;
-                    inline for (params) |param| {
-                        const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
-                        result[i] = try Conv.fromPy(param.type.?, item);
-                        i += 1;
+                    inline for (params, 0..) |param, i| {
+                        result[i] = arg: {
+                            if (comptime i >= min_args) {
+                                if (i >= arg_count) break :arg null;
+                            }
+                            const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
+                            break :arg try Conv.fromPy(param.type.?, item);
+                        };
                     }
 
                     return result;
@@ -682,16 +693,21 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
 
                     const args_tuple = py_args orelse return error.MissingArguments;
                     const arg_count = py.PyTuple_Size(args_tuple);
+                    const min_args = comptime wrappers_mod.minPositionalArgs(params[1..]);
 
-                    if (arg_count != extra_param_count) {
+                    if (arg_count < min_args or arg_count > extra_param_count) {
                         return error.WrongArgumentCount;
                     }
 
-                    comptime var i: usize = 0;
                     inline for (1..params.len) |param_idx| {
-                        const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
-                        result[i] = try Conv.fromPy(params[param_idx].type.?, item);
-                        i += 1;
+                        const i = param_idx - 1;
+                        result[i] = arg: {
+                            if (comptime i >= min_args) {
+                                if (i >= arg_count) break :arg null;
+                            }
+                            const item = py.PyTuple_GetItem(args_tuple, @intCast(i)) orelse return error.InvalidArgument;
+                            break :arg try Conv.fromPy(params[param_idx].type.?, item);
+                        };
                     }
 
                     return result;

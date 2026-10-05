@@ -65,6 +65,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
 
         // Count computed properties (get_X style)
         fn countComputedProperties() usize {
+            @setEvalBranchQuota(std.math.maxInt(u32));
             const type_decls = @typeInfo(T).@"struct".decls;
             var count: usize = 0;
             for (type_decls) |decl| {
@@ -87,6 +88,7 @@ pub fn PropertiesBuilder(comptime T: type, comptime Parent: type, comptime class
 
         // Count pyoz.property() declarations
         fn countPyozProperties() usize {
+            @setEvalBranchQuota(std.math.maxInt(u32));
             const type_decls = @typeInfo(T).@"struct".decls;
             var count: usize = 0;
             for (type_decls) |decl| {
