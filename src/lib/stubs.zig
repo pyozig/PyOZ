@@ -521,6 +521,9 @@ pub fn buildMlDoc(
     comptime param_names: ?[]const u8,
 ) [*:0]const u8 {
     comptime {
+        // The quota is shared by the whole evaluation that calls this (e.g. a
+        // class's method table), so its cost grows with the number of methods
+        @setEvalBranchQuota(std.math.maxInt(u32));
         const fn_info = @typeInfo(Fn).@"fn";
         const params = fn_info.params;
 

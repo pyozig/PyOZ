@@ -220,7 +220,7 @@ pub fn LifecycleBuilder(
         /// `__new__` takes parameters whose names are unknown (no
         /// `__new____params__` and no source text); keywords are then rejected.
         const param_names: ?[param_count][]const u8 = blk: {
-            @setEvalBranchQuota(10000);
+            @setEvalBranchQuota(std.math.maxInt(u32));
             var names: [param_count][]const u8 = undefined;
             if (!has_new) {
                 for (flat_fields, 0..) |ff, i| names[i] = ff.name;

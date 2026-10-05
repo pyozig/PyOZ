@@ -3359,6 +3359,16 @@ test "BadStrideBuffer - negative strides raise ValueError" {
     try std.testing.expect(try python.eval(bool, "bad_stride_raised"));
 }
 
+test "WideClass - a class with many documented methods compiles" {
+    // Compiling example.so is the actual check: this class used to exceed
+    // Zig's comptime branch quota in the method table.
+    const python = try initTestPython();
+    try std.testing.expectEqual(@as(i64, 42), try python.eval(i64, "example.WideClass(2).read_39('x', 1, None)"));
+    try std.testing.expectEqual(@as(i64, 126), try python.eval(i64, "example.WideClass(2).read_39('x', 1, 3)"));
+    try std.testing.expect(try python.eval(bool, "example.WideClass.read_7.__doc__.startswith('Return (v + offset + 7)')"));
+    try std.testing.expectEqual(@as(i64, 40), try python.eval(i64, "len([n for n in dir(example.WideClass) if n.startswith('read_')])"));
+}
+
 // ============================================================================
 // PRIVATE FIELDS (underscore prefix convention)
 // ============================================================================

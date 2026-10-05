@@ -39,11 +39,11 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
         /// Check if a declaration is handled by a protocol slot or is a
         /// non-function dunder (constant/type). The slot_dunders list is
         /// provided by mod.zig and contains only the dunders T actually
-        /// declares — typically 5–15 items, so this never hits branch-quota
-        /// limits. Other dunders like __enter__, __exit__, __missing__ pass
-        /// through as regular methods.
+        /// declares. The branch quota is shared by the whole evaluation that
+        /// calls this (once per declaration), hence the maximum. Other dunders
+        /// like __enter__, __exit__, __missing__ pass through as regular methods.
         fn isSlotDunder(comptime decl_name: []const u8) bool {
-            @setEvalBranchQuota(5000);
+            @setEvalBranchQuota(std.math.maxInt(u32));
             // Non-function declarations (__doc__, __base__, __features__, etc.)
             if (@hasDecl(T, decl_name) and @typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn")
                 return true;
@@ -232,6 +232,8 @@ pub fn MethodBuilder(comptime class_name: [*:0]const u8, comptime T: type, compt
         const total_count = totalMethodCount();
 
         pub var methods: [total_count + 1]py.PyMethodDef = blk: {
+            // Scales with the number of methods (signatures and docs are built here)
+            @setEvalBranchQuota(std.math.maxInt(u32));
             var m: [total_count + 1]py.PyMethodDef = undefined;
             var idx: usize = 0;
 

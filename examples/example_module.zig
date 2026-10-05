@@ -3632,6 +3632,7 @@ pub const Example = pyoz.module(.{
         pyoz.class("Resource", Resource),
         pyoz.class("FailingResource", FailingResource),
         pyoz.class("DelCounter", DelCounter),
+        pyoz.class("WideClass", @import("wide_class.zig").WideClass),
         pyoz.class("FlexPoint", FlexPoint),
         pyoz.class("Line", Line),
         pyoz.class("Owner", Owner),

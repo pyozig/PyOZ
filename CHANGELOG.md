@@ -5,6 +5,11 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.8] - 2026-10-05
+
+### Fixed
+- **Large classes failed to compile with `evaluation exceeded N backwards branches`.** PyOZ builds every method's signature and docstring at compile time, in one evaluation for the whole class, and that evaluation never raised Zig's branch quota. The cost grows with the number of methods and the length of their signatures and docs, so a class with about 40 documented methods could exceed it, and user code could not raise the limit. The method table, method detection, property counting and constructor now raise the quota like the module-level code already did. Regression example in `examples/wide_class.zig`; a class with 400 methods, 100 properties and 120 static and keyword methods also builds.
+
 ## [0.13.7] - 2026-09-30
 
 ### Fixed
