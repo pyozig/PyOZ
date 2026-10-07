@@ -183,6 +183,104 @@ fn inspectPe(bytes: []const u8) Error!Arch {
     };
 }
 
+pub const ImportSlotConstants = struct {
+    count: usize = 0,
+    /// Imported symbol of the first one found (points into the module bytes)
+    first: ?[]const u8 = null,
+};
+
+/// Windows modules: constants in the data sections that hold the address of
+/// an import slot. Data of the Python DLL (None, the PyExc_* objects, the
+/// type objects) must be read through its slot at run time; if the compiler
+/// treats the address as known at link time it can place it in a constant
+/// (a switch's table of results), and the linker fills that with the slot's
+/// address: the module then hands out the slot as if it were the object.
+pub fn importSlotConstants(bytes: []const u8) Error!ImportSlotConstants {
+    const pe = try read(u32, bytes, 0x3c);
+    if (!std.mem.eql(u8, &(try read([4]u8, bytes, pe)), "PE\x00\x00")) return error.UnsupportedBinary;
+    const nsec = try read(u16, bytes, pe + 6);
+    const opt = pe + 24;
+    const opt_size = try read(u16, bytes, pe + 20);
+    if (try read(u16, bytes, opt) != 0x20b) return error.UnsupportedBinary; // PE32+ only
+    const image_base = try read(u64, bytes, opt + 24);
+    // Data directories: 1 = import table, 12 = import address table
+    const imports_rva = try read(u32, bytes, opt + 112 + 1 * 8);
+    const iat_rva = try read(u32, bytes, opt + 112 + 12 * 8);
+    const iat_size = try read(u32, bytes, opt + 112 + 12 * 8 + 4);
+    if (iat_size == 0) return .{};
+
+    const Section = struct { name: [8]u8, vsize: u32, va: u32, rsize: u32, raw: u32 };
+    const sectionAt = struct {
+        fn get(b: []const u8, at: u64) Error!Section {
+            return .{
+                .name = try read([8]u8, b, at),
+                .vsize = try read(u32, b, at + 8),
+                .va = try read(u32, b, at + 12),
+                .rsize = try read(u32, b, at + 16),
+                .raw = try read(u32, b, at + 20),
+            };
+        }
+    }.get;
+    const sections = opt + opt_size;
+
+    var result: ImportSlotConstants = .{};
+    var first_slot: ?u64 = null;
+    var i: u64 = 0;
+    while (i < nsec) : (i += 1) {
+        const s = try sectionAt(bytes, sections + 40 * i);
+        const name = std.mem.sliceTo(&s.name, 0);
+        // Code, unwind data and base relocations legitimately refer to slots
+        if (std.mem.eql(u8, name, ".text") or std.mem.eql(u8, name, ".pdata") or std.mem.eql(u8, name, ".reloc")) continue;
+        const len = @min(s.vsize, s.rsize);
+        var off: u64 = 0;
+        while (off + 8 <= len) : (off += 8) {
+            const rva = s.va + off;
+            if (rva >= iat_rva and rva < iat_rva + iat_size) continue; // the table itself
+            const value = try read(u64, bytes, s.raw + off);
+            if (value < image_base) continue;
+            const target = value - image_base;
+            if (target >= iat_rva and target < iat_rva + iat_size) {
+                result.count += 1;
+                if (first_slot == null) first_slot = target;
+            }
+        }
+    }
+
+    // Name the first one: find its slot among the import descriptors
+    if (first_slot) |slot| {
+        const rvaToOffset = struct {
+            fn get(b: []const u8, secs: u64, n: u16, rva: u64) Error!u64 {
+                var k: u64 = 0;
+                while (k < n) : (k += 1) {
+                    const s = try sectionAt(b, secs + 40 * k);
+                    if (rva >= s.va and rva < s.va + @max(s.vsize, s.rsize)) return s.raw + (rva - s.va);
+                }
+                return error.Truncated;
+            }
+        }.get;
+        var desc = try rvaToOffset(bytes, sections, nsec, imports_rva);
+        while (true) : (desc += 20) {
+            const lookup = try read(u32, bytes, desc);
+            const dll_name = try read(u32, bytes, desc + 12);
+            const first_thunk = try read(u32, bytes, desc + 16);
+            if (dll_name == 0) break;
+            if (slot < first_thunk) continue;
+            const index = (slot - first_thunk) / 8;
+            const entries = try rvaToOffset(bytes, sections, nsec, if (lookup != 0) lookup else first_thunk);
+            // The slot must belong to this DLL's table (null-terminated)
+            var j: u64 = 0;
+            while (j <= index) : (j += 1) {
+                if (try read(u64, bytes, entries + 8 * j) == 0) break;
+            } else {
+                const entry = try read(u64, bytes, entries + 8 * index);
+                if (entry >> 63 == 0) result.first = try cstr(bytes, try rvaToOffset(bytes, sections, nsec, (entry & 0x7fffffff) + 2));
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 /// Oldest glibc a manylinux tag is produced for: manylinux2014, the oldest
 /// policy current pip and PyPI treat as mainstream (modules that need less
 /// still get this tag, which remains accurate).

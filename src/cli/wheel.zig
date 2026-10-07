@@ -130,6 +130,8 @@ fn buildOneWheel(ctx: Ctx, opts: WheelOptions, target: Target) ![]const u8 {
         return error.Abi3NotSupportedOnFreeThreaded;
     }
 
+    if (target.os == .windows) try checkImportSlots(allocator, io, build_result.module_path);
+
     std.debug.print("\nCreating wheel package...\n", .{});
 
     // Create dist directory
@@ -207,6 +209,21 @@ fn buildOneWheel(ctx: Ctx, opts: WheelOptions, target: Target) ![]const u8 {
 
     // Return owned path (caller must free)
     return wheel_path;
+}
+
+/// Refuse a Windows module that would hand out an import slot as a Python
+/// object (see binfo.importSlotConstants): it crashes when that path runs.
+fn checkImportSlots(allocator: std.mem.Allocator, io: Io, module_path: []const u8) !void {
+    const bytes = try Io.Dir.cwd().readFileAlloc(io, module_path, allocator, .limited(512 * 1024 * 1024));
+    defer allocator.free(bytes);
+    const found = try binfo.importSlotConstants(bytes);
+    if (found.count == 0) return;
+    std.debug.print("\nError: {s} has {d} constant(s) holding the address of an import slot instead of the object", .{ module_path, found.count });
+    if (found.first) |name| std.debug.print(" (first: {s})", .{name});
+    std.debug.print(".\nThe module would crash when it uses one. This happens when code takes the address of\n", .{});
+    std.debug.print("Python data (e.g. &pyoz.py.c._Py_NoneStruct or a PyExc_* variable) directly: use the\n", .{});
+    std.debug.print("pyoz.py accessors (pyoz.py.Py_None(), pyoz.py.PyExc_TypeError(), ...) instead.\n", .{});
+    return error.ImportSlotConstants;
 }
 
 fn createWheelZip(

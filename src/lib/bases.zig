@@ -17,22 +17,22 @@ pub const bases = struct {
 
     /// Base: Exception
     pub fn Exception() ?*PyTypeObject {
-        return @ptrCast(py.c.PyExc_Exception().*.ob_type);
+        return @ptrCast(py.PyExc_Exception());
     }
 
     /// Base: ValueError
     pub fn ValueError() ?*PyTypeObject {
-        return @ptrCast(py.c.PyExc_ValueError().*.ob_type);
+        return @ptrCast(py.PyExc_ValueError());
     }
 
     /// Base: TypeError
     pub fn TypeError() ?*PyTypeObject {
-        return @ptrCast(py.c.PyExc_TypeError().*.ob_type);
+        return @ptrCast(py.PyExc_TypeError());
     }
 
     /// Base: RuntimeError
     pub fn RuntimeError() ?*PyTypeObject {
-        return @ptrCast(py.c.PyExc_RuntimeError().*.ob_type);
+        return @ptrCast(py.PyExc_RuntimeError());
     }
 
     /// Base: list

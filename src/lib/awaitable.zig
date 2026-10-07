@@ -49,9 +49,9 @@ fn readyIterNext(self_obj: ?*PyObject) callconv(.c) ?*PyObject {
     }
     // The result travels in StopIteration.value. Pass an instance so a tuple or
     // exception result is not unpacked as constructor arguments.
-    const stop = c.PyObject_CallFunctionObjArgs(c.PyExc_StopIteration, payload, @as(?*PyObject, null)) orelse return null;
+    const stop = c.PyObject_CallFunctionObjArgs(py.PyExc_StopIteration(), payload, @as(?*PyObject, null)) orelse return null;
     defer py.Py_DecRef(stop);
-    c.PyErr_SetObject(c.PyExc_StopIteration, stop);
+    c.PyErr_SetObject(py.PyExc_StopIteration(), stop);
     return null;
 }
 
@@ -66,7 +66,7 @@ fn readySelf(self_obj: ?*PyObject) callconv(.c) ?*PyObject {
 
 fn readySend(self_obj: ?*PyObject, _: ?*PyObject) callconv(.c) ?*PyObject {
     const r = readyIterNext(self_obj);
-    if (r == null and py.PyErr_Occurred() == null) c.PyErr_SetNone(c.PyExc_StopIteration);
+    if (r == null and py.PyErr_Occurred() == null) c.PyErr_SetNone(py.PyExc_StopIteration());
     return r;
 }
 
@@ -77,7 +77,7 @@ fn readyThrow(self_obj: ?*PyObject, args: ?*PyObject) callconv(.c) ?*PyObject {
     var tb: ?*PyObject = null;
     if (c.PyArg_UnpackTuple(args, "throw", 1, 3, &typ, &val, &tb) == 0) return null;
     // throw(exc_instance) or throw(ExcType[, value]): raise it in the caller.
-    if (c.PyObject_IsInstance(typ.?, c.PyExc_BaseException) == 1) {
+    if (c.PyObject_IsInstance(typ.?, py.PyExc_BaseException()) == 1) {
         const tp = c.PyObject_Type(typ.?) orelse return null;
         defer py.Py_DecRef(tp);
         c.PyErr_SetObject(tp, typ.?);
@@ -168,7 +168,7 @@ pub fn ready(value: *PyObject) ?*PyObject {
 
 /// Awaitable raising StopAsyncIteration (end of an async iterator).
 pub fn stopAsyncIteration() ?*PyObject {
-    const exc = c.PyObject_CallObject(c.PyExc_StopAsyncIteration, null) orelse return null;
+    const exc = c.PyObject_CallObject(py.PyExc_StopAsyncIteration(), null) orelse return null;
     return newReady(exc, true);
 }
 

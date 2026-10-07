@@ -651,7 +651,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
                 is_exc = true; // conversion raised: deliver that exception instead
                 if (c.PyErr_Occurred() == null) {
                     // Never leave the awaitable pending: it would hang forever
-                    py.PyErr_SetString(c.PyExc_SystemError, "pyoz: async result conversion failed without setting an exception");
+                    py.PyErr_SetString(py.PyExc_SystemError(), "pyoz: async result conversion failed without setting an exception");
                 }
                 break :blk fetchException() orelse return;
             };
@@ -701,7 +701,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
                     };
                     if (@typeInfo(ResultPayload) == .optional and value == null and common.null_stops) {
                         is_exc.* = true;
-                        return c.PyObject_CallObject(c.PyExc_StopAsyncIteration, null);
+                        return c.PyObject_CallObject(py.PyExc_StopAsyncIteration(), null);
                     }
                     return C.toPy(ResultPayload, value);
                 }
@@ -806,7 +806,7 @@ pub fn AsyncFn(comptime f: anytype, comptime is_method: bool, comptime then: any
             startOrQueue(&job.common) catch {
                 // Out of memory for the pending queue: fail the future.
                 job.common.state.store(Common.cancelled, .release);
-                const r = callMethod(pyfut, .set_exception, c.PyExc_MemoryError);
+                const r = callMethod(pyfut, .set_exception, py.PyExc_MemoryError());
                 if (r) |o| py.Py_DecRef(o) else c.PyErr_Clear();
                 py.Py_IncRef(pyfut);
                 job.common.releasePy();
