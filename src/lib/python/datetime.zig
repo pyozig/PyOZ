@@ -110,7 +110,7 @@ pub fn PyDateTime_FromDateAndTime(year: c_int, month: c_int, day: c_int, hour: c
         // Non-ABI3: use the C API
         const api = datetime_api.?;
         const func = api.DateTime_FromDateAndTime orelse return null;
-        return func(year, month, day, hour, minute, second, usecond, @ptrCast(&c._Py_NoneStruct), api.DateTimeType);
+        return func(year, month, day, hour, minute, second, usecond, types.pyData(PyObject, "_Py_NoneStruct"), api.DateTimeType);
     }
 }
 
@@ -127,7 +127,7 @@ pub fn PyTime_FromTime(hour: c_int, minute: c_int, second: c_int, usecond: c_int
         // Non-ABI3: use the C API
         const api = datetime_api.?;
         const func = api.Time_FromTime orelse return null;
-        return func(hour, minute, second, usecond, @ptrCast(&c._Py_NoneStruct), api.TimeType);
+        return func(hour, minute, second, usecond, types.pyData(PyObject, "_Py_NoneStruct"), api.TimeType);
     }
 }
 

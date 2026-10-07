@@ -18,8 +18,11 @@ const abi3_enabled = types.abi3_enabled;
 // Singletons - MUST increment refcount when returning these!
 // ============================================================================
 
+// The singletons are data of the Python DLL: types.pyData reads their address
+// through the import table on Windows.
+
 pub inline fn Py_None() *PyObject {
-    return @ptrCast(&c._Py_NoneStruct);
+    return types.pyData(PyObject, "_Py_NoneStruct");
 }
 
 pub inline fn Py_True() *PyObject {
@@ -29,7 +32,7 @@ pub inline fn Py_True() *PyObject {
         // so we can treat it like the singleton
         return c.PyBool_FromLong(1).?;
     } else {
-        return @ptrCast(@alignCast(&c._Py_TrueStruct));
+        return types.pyData(PyObject, "_Py_TrueStruct");
     }
 }
 
@@ -37,7 +40,7 @@ pub inline fn Py_False() *PyObject {
     if (abi3_enabled) {
         return c.PyBool_FromLong(0).?;
     } else {
-        return @ptrCast(@alignCast(&c._Py_FalseStruct));
+        return types.pyData(PyObject, "_Py_FalseStruct");
     }
 }
 
@@ -83,7 +86,7 @@ pub inline fn Py_RETURN_BOOL(val: bool) *PyObject {
 
 /// Return NotImplemented (for comparison operators)
 pub inline fn Py_NotImplemented() *PyObject {
-    const ni = @as(*PyObject, @ptrCast(&c._Py_NotImplementedStruct));
+    const ni = types.pyData(PyObject, "_Py_NotImplementedStruct");
     Py_IncRef(ni);
     return ni;
 }

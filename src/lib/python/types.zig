@@ -53,7 +53,20 @@ pub const PyTypeObject = c.PyTypeObject;
 /// of opaque type (it emits `@compileError`). `@extern` only needs a pointer
 /// type, so this works identically in full and ABI3 modes.
 pub inline fn typeObject(comptime name: []const u8) *PyTypeObject {
-    return @extern(*PyTypeObject, .{ .name = name });
+    return pyData(PyTypeObject, name);
+}
+
+/// Address of a data symbol exported by the Python DLL/shared library
+/// (`_Py_NoneStruct`, `PyExc_TypeError`, `PyLong_Type`, ...).
+///
+/// On Windows such a symbol is imported: its address is only known at run
+/// time, from the import table. `&c.X` lets Zig treat the address as a
+/// link-time constant, which the optimizer can place in a constant (a
+/// switch's table of results); the linker then fills it with the address of
+/// the import slot instead of the object. `is_dll_import` makes every use
+/// load the address from the slot, as `__declspec(dllimport)` does in C.
+pub inline fn pyData(comptime T: type, comptime name: []const u8) *T {
+    return @extern(*T, .{ .name = name, .is_dll_import = builtin.os.tag == .windows });
 }
 
 // Method definition

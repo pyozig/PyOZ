@@ -5,6 +5,15 @@ All notable changes to PyOZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.10] - 2026-10-07
+
+### Fixed
+- **Optimized Windows builds could hand out an import slot as a Python object.** PyOZ took the address of Python's data (`&c._Py_NoneStruct`, the `PyExc_*` variables, type objects) as if it were known at link time. On Windows that data lives in the Python DLL and its address is only known at run time, from the import table; the optimizer placed such addresses in constant tables (the 61-entry exception table behind error mappings), and the linker filled them with the import slots' addresses. Raising a mapped exception from a release build could then crash. Every access now goes through `pyoz.py.types.pyData`, an `@extern` with `is_dll_import` on Windows, so the address is always loaded from the import slot, as `__declspec(dllimport)` does in C. This covers `Py_None`/`Py_True`/`Py_False`/`Py_NotImplemented`, all `PyExc_*` accessors and the type objects.
+- **`pyoz.bases.Exception`, `ValueError`, `TypeError` and `RuntimeError` did not compile** and would have returned `type` instead of the exception class.
+
+### Added
+- **`pyoz build` checks Windows modules for constants holding an import slot's address** and refuses to package one, naming the first symbol. This also catches user code that takes the address of Python data directly (`&pyoz.py.c._Py_NoneStruct`). CI cross-builds the example module for Windows with this check, and runs it optimized on Windows.
+
 ## [0.13.9] - 2026-10-05
 
 ### Fixed

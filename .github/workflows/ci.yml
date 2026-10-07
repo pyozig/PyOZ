@@ -278,6 +278,20 @@ jobs:
                       ls dist/*-cp313-cp313-$tag.whl
                   done
 
+            # `pyoz build` refuses a Windows module with constants holding an
+            # import slot's address instead of Python's data. The example module
+            # (exception tables, singletons, types) is the one that exercises it.
+            - name: Windows modules read Python data through the import table
+              if: runner.os == 'Linux'
+              run: |
+                  cd ../wheel-proj
+                  "$GITHUB_WORKSPACE/zig-out/bin/pyoz" init --local "$GITHUB_WORKSPACE" example
+                  cd example
+                  cp "$GITHUB_WORKSPACE"/examples/example_module.zig src/lib.zig
+                  cp "$GITHUB_WORKSPACE"/examples/wide_class.zig "$GITHUB_WORKSPACE"/examples/from_extras.zig src/
+                  "$GITHUB_WORKSPACE/zig-out/bin/pyoz" build --release --target x86_64-windows,aarch64-windows --python 3.13
+                  ls dist/*-win_amd64.whl dist/*-win_arm64.whl
+
     example-module:
         name: Example Module (${{ matrix.os }}, Python ${{ matrix.python-version }})
         runs-on: ${{ matrix.os }}
@@ -511,3 +525,35 @@ jobs:
 
                   print('All tests passed!')
                   "@
+
+            # Optimized builds can put the address of Python's data (None, the
+            # PyExc_* objects, types) in constants; on Windows those must be
+            # read through the import table at run time, or the module hands
+            # out the import slot as the object and crashes.
+            - name: Test example module, optimized (Windows)
+              if: runner.os == 'Windows'
+              shell: bash
+              run: |
+                  zig build example -Doptimize=ReleaseFast
+                  python - <<'PY'
+                  import sys
+                  sys.path.insert(0, 'zig-out/bin')
+                  import example
+                  # Exceptions from error mappings and well-known error names
+                  for call, exc, msg in (
+                      (lambda: example.divide(1.0, 0.0), RuntimeError, 'DivisionByZero'),
+                      (lambda: example.checked_named(n=5000), ValueError, 'Value exceeds maximum of 1000'),
+                      (lambda: example.test_raise_discard(-1), ValueError, 'value must be non-negative'),
+                      (lambda: example.clamp_to(), TypeError, 'WrongArgumentCount'),
+                  ):
+                      try:
+                          call()
+                          raise AssertionError('no exception')
+                      except exc as e:
+                          assert str(e) == msg, (exc, str(e))
+                  # Singletons and type objects
+                  assert example.clamp_to(500) == 100
+                  assert example.is_even(4) is True and example.is_even(3) is False
+                  assert example.WideClass(2).read_39('x', 1) == 42
+                  print('Optimized build OK')
+                  PY

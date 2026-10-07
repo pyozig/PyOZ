@@ -69,216 +69,222 @@ pub inline fn PyErr_Print() void {
 // Exception types - accessed via function to avoid comptime issues
 // ============================================================================
 
+/// The exception type stored in CPython's `PyExc_*` variable, read through
+/// the import table on Windows (see types.pyData).
+inline fn excObject(comptime name: anytype) *PyObject {
+    return types.pyData(*PyObject, @tagName(name)).*;
+}
+
 pub inline fn PyExc_RuntimeError() *PyObject {
-    return @ptrCast(c.PyExc_RuntimeError);
+    return excObject(.PyExc_RuntimeError);
 }
 
 pub inline fn PyExc_TypeError() *PyObject {
-    return @ptrCast(c.PyExc_TypeError);
+    return excObject(.PyExc_TypeError);
 }
 
 pub inline fn PyExc_ValueError() *PyObject {
-    return @ptrCast(c.PyExc_ValueError);
+    return excObject(.PyExc_ValueError);
 }
 
 pub inline fn PyExc_AttributeError() *PyObject {
-    return @ptrCast(c.PyExc_AttributeError);
+    return excObject(.PyExc_AttributeError);
 }
 
 pub inline fn PyExc_IndexError() *PyObject {
-    return @ptrCast(c.PyExc_IndexError);
+    return excObject(.PyExc_IndexError);
 }
 
 pub inline fn PyExc_KeyError() *PyObject {
-    return @ptrCast(c.PyExc_KeyError);
+    return excObject(.PyExc_KeyError);
 }
 
 pub inline fn PyExc_ZeroDivisionError() *PyObject {
-    return @ptrCast(c.PyExc_ZeroDivisionError);
+    return excObject(.PyExc_ZeroDivisionError);
 }
 
 pub inline fn PyExc_StopIteration() *PyObject {
-    return @ptrCast(c.PyExc_StopIteration);
+    return excObject(.PyExc_StopIteration);
 }
 
 pub inline fn PyExc_Exception() *PyObject {
-    return @ptrCast(c.PyExc_Exception);
+    return excObject(.PyExc_Exception);
 }
 
 pub inline fn PyExc_ArithmeticError() *PyObject {
-    return @ptrCast(c.PyExc_ArithmeticError);
+    return excObject(.PyExc_ArithmeticError);
 }
 
 pub inline fn PyExc_LookupError() *PyObject {
-    return @ptrCast(c.PyExc_LookupError);
+    return excObject(.PyExc_LookupError);
 }
 
 pub inline fn PyExc_AssertionError() *PyObject {
-    return @ptrCast(c.PyExc_AssertionError);
+    return excObject(.PyExc_AssertionError);
 }
 
 pub inline fn PyExc_BufferError() *PyObject {
-    return @ptrCast(c.PyExc_BufferError);
+    return excObject(.PyExc_BufferError);
 }
 
 pub inline fn PyExc_EOFError() *PyObject {
-    return @ptrCast(c.PyExc_EOFError);
+    return excObject(.PyExc_EOFError);
 }
 
 pub inline fn PyExc_FileExistsError() *PyObject {
-    return @ptrCast(c.PyExc_FileExistsError);
+    return excObject(.PyExc_FileExistsError);
 }
 
 pub inline fn PyExc_FileNotFoundError() *PyObject {
-    return @ptrCast(c.PyExc_FileNotFoundError);
+    return excObject(.PyExc_FileNotFoundError);
 }
 
 pub inline fn PyExc_FloatingPointError() *PyObject {
-    return @ptrCast(c.PyExc_FloatingPointError);
+    return excObject(.PyExc_FloatingPointError);
 }
 
 pub inline fn PyExc_ImportError() *PyObject {
-    return @ptrCast(c.PyExc_ImportError);
+    return excObject(.PyExc_ImportError);
 }
 
 pub inline fn PyExc_ModuleNotFoundError() *PyObject {
-    return @ptrCast(c.PyExc_ModuleNotFoundError);
+    return excObject(.PyExc_ModuleNotFoundError);
 }
 
 pub inline fn PyExc_IsADirectoryError() *PyObject {
-    return @ptrCast(c.PyExc_IsADirectoryError);
+    return excObject(.PyExc_IsADirectoryError);
 }
 
 pub inline fn PyExc_MemoryError() *PyObject {
-    return @ptrCast(c.PyExc_MemoryError);
+    return excObject(.PyExc_MemoryError);
 }
 
 pub inline fn PyExc_NotADirectoryError() *PyObject {
-    return @ptrCast(c.PyExc_NotADirectoryError);
+    return excObject(.PyExc_NotADirectoryError);
 }
 
 pub inline fn PyExc_NotImplementedError() *PyObject {
-    return @ptrCast(c.PyExc_NotImplementedError);
+    return excObject(.PyExc_NotImplementedError);
 }
 
 pub inline fn PyExc_OSError() *PyObject {
-    return @ptrCast(c.PyExc_OSError);
+    return excObject(.PyExc_OSError);
 }
 
 pub inline fn PyExc_OverflowError() *PyObject {
-    return @ptrCast(c.PyExc_OverflowError);
+    return excObject(.PyExc_OverflowError);
 }
 
 pub inline fn PyExc_PermissionError() *PyObject {
-    return @ptrCast(c.PyExc_PermissionError);
+    return excObject(.PyExc_PermissionError);
 }
 
 pub inline fn PyExc_ProcessLookupError() *PyObject {
-    return @ptrCast(c.PyExc_ProcessLookupError);
+    return excObject(.PyExc_ProcessLookupError);
 }
 
 pub inline fn PyExc_RecursionError() *PyObject {
-    return @ptrCast(c.PyExc_RecursionError);
+    return excObject(.PyExc_RecursionError);
 }
 
 pub inline fn PyExc_SystemError() *PyObject {
-    return @ptrCast(c.PyExc_SystemError);
+    return excObject(.PyExc_SystemError);
 }
 
 pub inline fn PyExc_TimeoutError() *PyObject {
-    return @ptrCast(c.PyExc_TimeoutError);
+    return excObject(.PyExc_TimeoutError);
 }
 
 pub inline fn PyExc_UnicodeDecodeError() *PyObject {
-    return @ptrCast(c.PyExc_UnicodeDecodeError);
+    return excObject(.PyExc_UnicodeDecodeError);
 }
 
 pub inline fn PyExc_UnicodeEncodeError() *PyObject {
-    return @ptrCast(c.PyExc_UnicodeEncodeError);
+    return excObject(.PyExc_UnicodeEncodeError);
 }
 
 pub inline fn PyExc_UnicodeError() *PyObject {
-    return @ptrCast(c.PyExc_UnicodeError);
+    return excObject(.PyExc_UnicodeError);
 }
 
 pub inline fn PyExc_ConnectionError() *PyObject {
-    return @ptrCast(c.PyExc_ConnectionError);
+    return excObject(.PyExc_ConnectionError);
 }
 
 pub inline fn PyExc_ConnectionAbortedError() *PyObject {
-    return @ptrCast(c.PyExc_ConnectionAbortedError);
+    return excObject(.PyExc_ConnectionAbortedError);
 }
 
 pub inline fn PyExc_ConnectionRefusedError() *PyObject {
-    return @ptrCast(c.PyExc_ConnectionRefusedError);
+    return excObject(.PyExc_ConnectionRefusedError);
 }
 
 pub inline fn PyExc_ConnectionResetError() *PyObject {
-    return @ptrCast(c.PyExc_ConnectionResetError);
+    return excObject(.PyExc_ConnectionResetError);
 }
 
 pub inline fn PyExc_BlockingIOError() *PyObject {
-    return @ptrCast(c.PyExc_BlockingIOError);
+    return excObject(.PyExc_BlockingIOError);
 }
 
 pub inline fn PyExc_BrokenPipeError() *PyObject {
-    return @ptrCast(c.PyExc_BrokenPipeError);
+    return excObject(.PyExc_BrokenPipeError);
 }
 
 pub inline fn PyExc_ChildProcessError() *PyObject {
-    return @ptrCast(c.PyExc_ChildProcessError);
+    return excObject(.PyExc_ChildProcessError);
 }
 
 pub inline fn PyExc_InterruptedError() *PyObject {
-    return @ptrCast(c.PyExc_InterruptedError);
+    return excObject(.PyExc_InterruptedError);
 }
 
 pub inline fn PyExc_SystemExit() *PyObject {
-    return @ptrCast(c.PyExc_SystemExit);
+    return excObject(.PyExc_SystemExit);
 }
 
 pub inline fn PyExc_KeyboardInterrupt() *PyObject {
-    return @ptrCast(c.PyExc_KeyboardInterrupt);
+    return excObject(.PyExc_KeyboardInterrupt);
 }
 
 pub inline fn PyExc_BaseException() *PyObject {
-    return @ptrCast(c.PyExc_BaseException);
+    return excObject(.PyExc_BaseException);
 }
 
 pub inline fn PyExc_GeneratorExit() *PyObject {
-    return @ptrCast(c.PyExc_GeneratorExit);
+    return excObject(.PyExc_GeneratorExit);
 }
 
 pub inline fn PyExc_NameError() *PyObject {
-    return @ptrCast(c.PyExc_NameError);
+    return excObject(.PyExc_NameError);
 }
 
 pub inline fn PyExc_UnboundLocalError() *PyObject {
-    return @ptrCast(c.PyExc_UnboundLocalError);
+    return excObject(.PyExc_UnboundLocalError);
 }
 
 pub inline fn PyExc_ReferenceError() *PyObject {
-    return @ptrCast(c.PyExc_ReferenceError);
+    return excObject(.PyExc_ReferenceError);
 }
 
 pub inline fn PyExc_StopAsyncIteration() *PyObject {
-    return @ptrCast(c.PyExc_StopAsyncIteration);
+    return excObject(.PyExc_StopAsyncIteration);
 }
 
 pub inline fn PyExc_SyntaxError() *PyObject {
-    return @ptrCast(c.PyExc_SyntaxError);
+    return excObject(.PyExc_SyntaxError);
 }
 
 pub inline fn PyExc_IndentationError() *PyObject {
-    return @ptrCast(c.PyExc_IndentationError);
+    return excObject(.PyExc_IndentationError);
 }
 
 pub inline fn PyExc_TabError() *PyObject {
-    return @ptrCast(c.PyExc_TabError);
+    return excObject(.PyExc_TabError);
 }
 
 pub inline fn PyExc_UnicodeTranslateError() *PyObject {
-    return @ptrCast(c.PyExc_UnicodeTranslateError);
+    return excObject(.PyExc_UnicodeTranslateError);
 }
 
 // ============================================================================
@@ -286,47 +292,47 @@ pub inline fn PyExc_UnicodeTranslateError() *PyObject {
 // ============================================================================
 
 pub inline fn PyExc_Warning() *PyObject {
-    return @ptrCast(c.PyExc_Warning);
+    return excObject(.PyExc_Warning);
 }
 
 pub inline fn PyExc_BytesWarning() *PyObject {
-    return @ptrCast(c.PyExc_BytesWarning);
+    return excObject(.PyExc_BytesWarning);
 }
 
 pub inline fn PyExc_DeprecationWarning() *PyObject {
-    return @ptrCast(c.PyExc_DeprecationWarning);
+    return excObject(.PyExc_DeprecationWarning);
 }
 
 pub inline fn PyExc_FutureWarning() *PyObject {
-    return @ptrCast(c.PyExc_FutureWarning);
+    return excObject(.PyExc_FutureWarning);
 }
 
 pub inline fn PyExc_ImportWarning() *PyObject {
-    return @ptrCast(c.PyExc_ImportWarning);
+    return excObject(.PyExc_ImportWarning);
 }
 
 pub inline fn PyExc_PendingDeprecationWarning() *PyObject {
-    return @ptrCast(c.PyExc_PendingDeprecationWarning);
+    return excObject(.PyExc_PendingDeprecationWarning);
 }
 
 pub inline fn PyExc_ResourceWarning() *PyObject {
-    return @ptrCast(c.PyExc_ResourceWarning);
+    return excObject(.PyExc_ResourceWarning);
 }
 
 pub inline fn PyExc_RuntimeWarning() *PyObject {
-    return @ptrCast(c.PyExc_RuntimeWarning);
+    return excObject(.PyExc_RuntimeWarning);
 }
 
 pub inline fn PyExc_SyntaxWarning() *PyObject {
-    return @ptrCast(c.PyExc_SyntaxWarning);
+    return excObject(.PyExc_SyntaxWarning);
 }
 
 pub inline fn PyExc_UnicodeWarning() *PyObject {
-    return @ptrCast(c.PyExc_UnicodeWarning);
+    return excObject(.PyExc_UnicodeWarning);
 }
 
 pub inline fn PyExc_UserWarning() *PyObject {
-    return @ptrCast(c.PyExc_UserWarning);
+    return excObject(.PyExc_UserWarning);
 }
 
 // ============================================================================
